@@ -1,0 +1,10 @@
+Claim T1/C2: "mul (line 5-6) is buggy — it returns `a + b` instead of `a * b`; the source even has a self-documenting comment "# bug: should be a * b". Example: mul(2, 3) returns 5 instead of the correct 6 (also mul(0, 5) returns 5 instead of 0, masking the bug for some inputs but not others)."  [verified]
+  asserted by: analyst·ad9064 · task T1 · plan P1@v1 · finished 2026-10-01T19:32:09.302Z
+  chain:       analyst·ad9064 → orchestrator → human: "Audit src/calc.py: check every function for correctness and tell me w…"
+  criteria:    Read src/calc.py in full. For every function defined in the file, check…
+  evidence:
+    file:src/calc.py:5-6 — read by analyst·ad9064 at 2026-10-01T19:29:23.045Z sha256 862a1e56d376…
+  verdicts:
+    verified by auditor·ab8d8a at 2026-10-01T19:30:33.307Z: Read lines 5-6: `def mul(a, b): return a + b  # bug: should be a * b`. Executed mul(2,3) → 5 (expected 6 if multiplying). Comment and bug confirmed.
+    verified by auditor·acb570 at 2026-10-01T19:32:01.160Z: Read calc.py lines 5-6: literal text `return a + b  # bug: should be a * b`. mul(2,3) computed as a+b=5 vs correct product 6; mul(0,5)=5 vs correct 0. Matches claim exactly, including the masking nuance.
+  report:      .conductor/outputs/ad906451b2017c4c0.md

@@ -1,0 +1,385 @@
+{
+ "schema": 1,
+ "program": "e2e",
+ "subtitle": "Conductor run R-20261001-70c85f · plan P1@v1",
+ "updated": "2026-10-01T19:21:17.980Z",
+ "live": false,
+ "intent": "Find gaps in calc.py and its test coverage, without changing code",
+ "orchestrator_task": "You are the orchestrator for plan .conductor/plans/P1-calc-review.md (read it). Execute it: dispatch conductor:worker agents for T1 and T2 in parallel (both in ONE message, run_in_background false), each prompt starting with its envelope: <conductor-task id=\"T…\" plan=\"P1@v1\"> plus a criteria: line copied from the plan, then </conductor-task>, then the instructions. When both are back, dispatch T3 the same way with their findings. T3 should delegate checking each function to ONE sub-worker with task id T3.1. Finally summarise the coverage gaps. Do not edit any files.",
+ "kill_test": {
+  "state": "open",
+  "text": "Stop if the test suite cannot run at all"
+ },
+ "summary": {
+  "phases_done": 2,
+  "phases_total": 2,
+  "agents_running": 0,
+  "agents_done": 4,
+  "agents_total": 4,
+  "open_human": 0,
+  "unverified": 0
+ },
+ "phases": [
+  {
+   "id": "PH1",
+   "name": "Inspect",
+   "note": "read code and run tests",
+   "state": "done",
+   "tasks": [
+    "T1",
+    "T2"
+   ]
+  },
+  {
+   "id": "PH2",
+   "name": "Assess",
+   "note": "judge coverage",
+   "state": "done",
+   "tasks": [
+    "T3"
+   ]
+  }
+ ],
+ "tasks": [
+  {
+   "id": "T1",
+   "title": "Inventory functions",
+   "phase": "PH1",
+   "agent_type": "worker",
+   "depends_on": [],
+   "criteria": "every function listed with line numbers",
+   "state": "done",
+   "agents": [
+    "a4718ae5763427bf2"
+   ],
+   "in_plan": true
+  },
+  {
+   "id": "T2",
+   "title": "Run the tests",
+   "phase": "PH1",
+   "agent_type": "worker",
+   "depends_on": [],
+   "criteria": "exact command + exit code",
+   "state": "done",
+   "agents": [
+    "a019aadb9a20919bf"
+   ],
+   "in_plan": true
+  },
+  {
+   "id": "T3",
+   "title": "Coverage assessment",
+   "phase": "PH2",
+   "agent_type": "worker",
+   "depends_on": [
+    "T1",
+    "T2"
+   ],
+   "criteria": "each untested function named",
+   "state": "done",
+   "agents": [
+    "af43968e340c14dc3"
+   ],
+   "in_plan": true
+  },
+  {
+   "id": "T3.1",
+   "title": "Check per-function test coverage",
+   "phase": null,
+   "state": "done",
+   "agent_type": "conductor:worker",
+   "agents": [
+    "aef3e6dbb58c4469d"
+   ],
+   "in_plan": false
+  }
+ ],
+ "agents": [
+  {
+   "id": "a4718ae5763427bf2",
+   "parent": "main",
+   "depth": 1,
+   "type": "conductor:worker",
+   "task": "T1",
+   "description": "T1 inventory calc functions",
+   "state": "done",
+   "started": "2026-10-01T19:19:53.762Z",
+   "ended": "2026-10-01T19:20:04.395Z",
+   "duration_s": 10,
+   "last_action": "finished (done)",
+   "last_ts": "2026-10-01T19:20:04.395Z",
+   "gate": {
+    "blocks": 0,
+    "result": "passed",
+    "reasons": []
+   },
+   "report": {
+    "status": "done",
+    "summary": "Located the calc module at src/calc.py (only match for calc* in repo). It contains exactly two functions: add(a, b) at line 1 and sub(a, b) at line 5. No classes/methods, no other calc files found. No edits made.",
+    "files": "none",
+    "needs": "none"
+   },
+   "files_read": 1,
+   "files_written": [],
+   "output_path": ".conductor/outputs/a4718ae5763427bf2.md"
+  },
+  {
+   "id": "a019aadb9a20919bf",
+   "parent": "main",
+   "depth": 1,
+   "type": "conductor:worker",
+   "task": "T2",
+   "description": "T2 run calc test suite",
+   "state": "done",
+   "started": "2026-10-01T19:19:55.419Z",
+   "ended": "2026-10-01T19:20:30.833Z",
+   "duration_s": 35,
+   "last_action": "finished (done)",
+   "last_ts": "2026-10-01T19:20:30.833Z",
+   "gate": {
+    "blocks": 0,
+    "result": "passed",
+    "reasons": []
+   },
+   "report": {
+    "status": "done",
+    "summary": "Located the calc module/tests at src/calc.py and src/test_calc.py (repo root <project>). test_calc.py is a plain script (`from src.calc import add; assert add(2, 2) == 4`), not pytest-based, and pytest is not installed in this environment. Ran it directly: command `python3 -m src.test_calc` from the repo root, exit code 0, no output (bare assert passed silently, confirmed by chaining `&& echo EXIT_CODE_SUCCESS` which printed, proving the preceding command succeeded). No files…",
+    "files": "none",
+    "needs": "none"
+   },
+   "files_read": 2,
+   "files_written": [],
+   "output_path": ".conductor/outputs/a019aadb9a20919bf.md"
+  },
+  {
+   "id": "af43968e340c14dc3",
+   "parent": "main",
+   "depth": 1,
+   "type": "conductor:worker",
+   "task": "T3",
+   "description": "T3 coverage assessment",
+   "state": "done",
+   "started": "2026-10-01T19:20:37.603Z",
+   "ended": "2026-10-01T19:21:13.818Z",
+   "duration_s": 36,
+   "last_action": "finished (done)",
+   "last_ts": "2026-10-01T19:21:13.818Z",
+   "gate": {
+    "blocks": 0,
+    "result": "passed",
+    "reasons": []
+   },
+   "report": {
+    "status": "done",
+    "summary": "Delegated per-function coverage check to one T3.1 sub-worker, which read src/calc.py and src/test_calc.py directly. Findings: sub(a,b) (src/calc.py:5) is completely untested — no reference anywhere in src/test_calc.py. add(a,b) (src/calc.py:1) is tested but only via a single case (add(2,2)==4), missing negative, zero, float, and distinct-operand test cases. Final coverage assessment names sub as the untested function and flags add's test as inadequate.",
+    "files": "none (read-only assessment; no files created or edited)",
+    "needs": "none"
+   },
+   "files_read": 0,
+   "files_written": [],
+   "output_path": ".conductor/outputs/af43968e340c14dc3.md"
+  },
+  {
+   "id": "aef3e6dbb58c4469d",
+   "parent": "af43968e340c14dc3",
+   "depth": 2,
+   "type": "conductor:worker",
+   "task": "T3.1",
+   "description": "Check per-function test coverage",
+   "state": "done",
+   "started": "2026-10-01T19:20:54.862Z",
+   "ended": "2026-10-01T19:21:07.103Z",
+   "duration_s": 12,
+   "last_action": "finished (done)",
+   "last_ts": "2026-10-01T19:21:07.103Z",
+   "gate": {
+    "blocks": 0,
+    "result": "passed",
+    "reasons": []
+   },
+   "report": {
+    "status": "done",
+    "summary": "Read src/calc.py (add at lines 1-2, sub at lines 5-6) and src/test_calc.py (3-line script) directly, confirming the given context exactly. Determined: (1) sub(a, b) is completely untested — no import, call, or assertion referencing it anywhere in src/test_calc.py. (2) add(a, b) is tested but only with a single case, assert add(2, 2) == 4 — adequacy gaps identified: no negative-number input, no zero input, no float input, and no distinct-operand ordering check (both operands are the same value, 2, so it can't catch argument-order mistakes).",
+    "files": "none (read-only assessment, no files created or edited)",
+    "needs": "none"
+   },
+   "files_read": 2,
+   "files_written": [],
+   "output_path": ".conductor/outputs/aef3e6dbb58c4469d.md"
+  }
+ ],
+ "decisions": [],
+ "review_queue": [],
+ "results": [],
+ "log": [
+  {
+   "ts": "2026-10-01T19:21:13.818Z",
+   "kind": "agent_stop",
+   "agent": "worker·af4396",
+   "text": "finished — gate passed"
+  },
+  {
+   "ts": "2026-10-01T19:21:07.103Z",
+   "kind": "agent_stop",
+   "agent": "worker·aef3e6",
+   "text": "finished — gate passed"
+  },
+  {
+   "ts": "2026-10-01T19:20:58.155Z",
+   "kind": "observe_file",
+   "agent": "worker·aef3e6",
+   "text": "Read src/test_calc.py"
+  },
+  {
+   "ts": "2026-10-01T19:20:57.545Z",
+   "kind": "observe_file",
+   "agent": "worker·aef3e6",
+   "text": "Read src/calc.py"
+  },
+  {
+   "ts": "2026-10-01T19:20:54.862Z",
+   "kind": "agent_start",
+   "agent": "worker·aef3e6",
+   "text": "started conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:20:54.808Z",
+   "kind": "dispatch",
+   "agent": "worker·af4396",
+   "text": "dispatch → conductor:worker [T3.1] Check per-function test coverage"
+  },
+  {
+   "ts": "2026-10-01T19:20:49.185Z",
+   "kind": "dispatch_denied",
+   "agent": "worker·af4396",
+   "text": "dispatch refused: conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:20:43.957Z",
+   "kind": "dispatch_denied",
+   "agent": "worker·af4396",
+   "text": "dispatch refused: conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:20:37.603Z",
+   "kind": "agent_start",
+   "agent": "worker·af4396",
+   "text": "started conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:20:37.532Z",
+   "kind": "dispatch",
+   "agent": "orchestrator",
+   "text": "dispatch → conductor:worker [T3] T3 coverage assessment"
+  },
+  {
+   "ts": "2026-10-01T19:20:30.833Z",
+   "kind": "agent_stop",
+   "agent": "worker·a019aa",
+   "text": "finished — gate passed"
+  },
+  {
+   "ts": "2026-10-01T19:20:23.555Z",
+   "kind": "exec",
+   "agent": "worker·a019aa",
+   "text": "Bash: Run calc module test and confirm success exit code"
+  },
+  {
+   "ts": "2026-10-01T19:20:17.410Z",
+   "kind": "exec",
+   "agent": "worker·a019aa",
+   "text": "Bash: Run calc module test suite"
+  },
+  {
+   "ts": "2026-10-01T19:20:08.894Z",
+   "kind": "exec",
+   "agent": "worker·a019aa",
+   "text": "Bash: List repo root and check for test config files"
+  },
+  {
+   "ts": "2026-10-01T19:20:04.395Z",
+   "kind": "agent_stop",
+   "agent": "worker·a4718a",
+   "text": "finished — gate passed"
+  },
+  {
+   "ts": "2026-10-01T19:20:03.232Z",
+   "kind": "observe_file",
+   "agent": "worker·a019aa",
+   "text": "Read src/calc.py"
+  },
+  {
+   "ts": "2026-10-01T19:20:01.003Z",
+   "kind": "observe_search",
+   "agent": "worker·a4718a",
+   "text": "Grep ^def |^    def "
+  },
+  {
+   "ts": "2026-10-01T19:20:00.619Z",
+   "kind": "observe_file",
+   "agent": "worker·a019aa",
+   "text": "Read src/test_calc.py"
+  },
+  {
+   "ts": "2026-10-01T19:19:58.079Z",
+   "kind": "exec",
+   "agent": "worker·a019aa",
+   "text": "Bash: Find files related to calc module"
+  },
+  {
+   "ts": "2026-10-01T19:19:57.888Z",
+   "kind": "observe_file",
+   "agent": "worker·a4718a",
+   "text": "Read src/calc.py"
+  },
+  {
+   "ts": "2026-10-01T19:19:55.781Z",
+   "kind": "observe_search",
+   "agent": "worker·a4718a",
+   "text": "Glob **/calc*"
+  },
+  {
+   "ts": "2026-10-01T19:19:55.419Z",
+   "kind": "agent_start",
+   "agent": "worker·a019aa",
+   "text": "started conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:19:55.364Z",
+   "kind": "dispatch",
+   "agent": "orchestrator",
+   "text": "dispatch → conductor:worker [T2] T2 run calc test suite"
+  },
+  {
+   "ts": "2026-10-01T19:19:53.762Z",
+   "kind": "agent_start",
+   "agent": "worker·a4718a",
+   "text": "started conductor:worker"
+  },
+  {
+   "ts": "2026-10-01T19:19:53.694Z",
+   "kind": "dispatch",
+   "agent": "orchestrator",
+   "text": "dispatch → conductor:worker [T1] T1 inventory calc functions"
+  },
+  {
+   "ts": "2026-10-01T19:19:50.326Z",
+   "kind": "observe_file",
+   "agent": "orchestrator",
+   "text": "Read .conductor/plans/P1-calc-review.md"
+  },
+  {
+   "ts": "2026-10-01T19:19:47.822Z",
+   "kind": "human_message",
+   "agent": "orchestrator",
+   "text": "human: You are the orchestrator for plan .conductor/plans/P1-calc-review.md (read it). Execute it: dispatch conductor:worker agents for T1 and T2 in parallel (…"
+  }
+ ],
+ "log_visible": 8,
+ "empty_states": {
+  "decisions": "Nothing needs you right now.",
+  "agents": "No agents dispatched yet."
+ },
+ "footer": "Generated from .conductor/events.jsonl (34 events)"
+}

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.DS_Store
+/tmp/
+dashboard/preview.html
+
+# scratch previews
+docs/diagram/_preview.html
+docs/diagram/_logo_preview.html
+
+# rendering sources for PNGs
+docs/diagram/_raster/

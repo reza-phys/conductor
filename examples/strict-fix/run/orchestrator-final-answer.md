@@ -1,0 +1,1 @@
+Done. Fixed `mul()` (was `a+b`, now `a*b`), expanded `src/test_calc.py` with plain asserts covering add, mul, and safe_div (negatives, zero, b==0 case) — verified **T1/C1–C4**. Committed locally as `fd1b4f6` (not pushed, per your "commit" ask being distinct from "push").

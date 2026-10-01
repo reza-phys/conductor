@@ -1,0 +1,1104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conductor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('cd:theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+:root {
+  color-scheme: light;
+  --cd-bg: #ffffff;
+  --cd-fg: #1a1f26;
+  --cd-muted: #59626f;
+  --cd-line: #e2e5ea;
+  --cd-soft: #f4f6f8;
+  --cd-card: #ffffff;
+  --cd-link: #1d4ed8;
+  --cd-focus: #2563eb;
+  --cd-live: #15803d;
+  --cd-warn: #9a3412;
+  --cd-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --cd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --cd-running-bg: #dbeafe;   --cd-running-fg: #1e40af;
+  --cd-blocked-bg: #ffedd5;   --cd-blocked-fg: #9a3412;
+  --cd-queued-bg: #ede9fe;    --cd-queued-fg: #5b21b6;
+  --cd-pending-bg: #eef1f5;   --cd-pending-fg: #475569;
+  --cd-open-bg: #fef3c7;      --cd-open-fg: #854d0e;
+  --cd-failed-bg: #fee2e2;    --cd-failed-fg: #991b1b;
+  --cd-done-bg: #dcfce7;      --cd-done-fg: #166534;
+  --cd-decided-bg: #ccfbf1;   --cd-decided-fg: #115e59;
+  --cd-todo-bg: #f1f5f9;      --cd-todo-fg: #334155;
+  --cd-unverified-bg: #fae8ff; --cd-unverified-fg: #86198f;
+  --cd-neutral-bg: #e5e7eb;   --cd-neutral-fg: #374151;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --cd-bg: #0f1216;
+    --cd-fg: #e6e9ee;
+    --cd-muted: #9ca5b3;
+    --cd-line: #272d36;
+    --cd-soft: #161a21;
+    --cd-card: #141820;
+    --cd-link: #93b4ff;
+    --cd-focus: #7aa7ff;
+    --cd-live: #4ade80;
+    --cd-warn: #fdba74;
+    --cd-running-bg: #1b3358;   --cd-running-fg: #c7dbff;
+    --cd-blocked-bg: #4a2511;   --cd-blocked-fg: #fed7aa;
+    --cd-queued-bg: #2e2360;    --cd-queued-fg: #ddd6fe;
+    --cd-pending-bg: #232a35;   --cd-pending-fg: #cbd5e1;
+    --cd-open-bg: #42300a;      --cd-open-fg: #fde68a;
+    --cd-failed-bg: #4c1717;    --cd-failed-fg: #fecaca;
+    --cd-done-bg: #133d25;      --cd-done-fg: #bbf7d0;
+    --cd-decided-bg: #0f3b38;   --cd-decided-fg: #99f6e4;
+    --cd-todo-bg: #1e2530;      --cd-todo-fg: #e2e8f0;
+    --cd-unverified-bg: #3f1646; --cd-unverified-fg: #f5d0fe;
+    --cd-neutral-bg: #272d37;   --cd-neutral-fg: #d6dae1;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cd-bg: #0f1216;
+  --cd-fg: #e6e9ee;
+  --cd-muted: #9ca5b3;
+  --cd-line: #272d36;
+  --cd-soft: #161a21;
+  --cd-card: #141820;
+  --cd-link: #93b4ff;
+  --cd-focus: #7aa7ff;
+  --cd-live: #4ade80;
+  --cd-warn: #fdba74;
+  --cd-running-bg: #1b3358;   --cd-running-fg: #c7dbff;
+  --cd-blocked-bg: #4a2511;   --cd-blocked-fg: #fed7aa;
+  --cd-queued-bg: #2e2360;    --cd-queued-fg: #ddd6fe;
+  --cd-pending-bg: #232a35;   --cd-pending-fg: #cbd5e1;
+  --cd-open-bg: #42300a;      --cd-open-fg: #fde68a;
+  --cd-failed-bg: #4c1717;    --cd-failed-fg: #fecaca;
+  --cd-done-bg: #133d25;      --cd-done-fg: #bbf7d0;
+  --cd-decided-bg: #0f3b38;   --cd-decided-fg: #99f6e4;
+  --cd-todo-bg: #1e2530;      --cd-todo-fg: #e2e8f0;
+  --cd-unverified-bg: #3f1646; --cd-unverified-fg: #f5d0fe;
+  --cd-neutral-bg: #272d37;   --cd-neutral-fg: #d6dae1;
+}
+
+/* state tokens: applied via data-st (chips, dots, phase segments) */
+[data-st] { --st-bg: var(--cd-neutral-bg); --st-fg: var(--cd-neutral-fg); }
+[data-st="running"] { --st-bg: var(--cd-running-bg); --st-fg: var(--cd-running-fg); }
+[data-st="blocked"] { --st-bg: var(--cd-blocked-bg); --st-fg: var(--cd-blocked-fg); }
+[data-st="queued"] { --st-bg: var(--cd-queued-bg); --st-fg: var(--cd-queued-fg); }
+[data-st="pending"] { --st-bg: var(--cd-pending-bg); --st-fg: var(--cd-pending-fg); }
+[data-st="open"] { --st-bg: var(--cd-open-bg); --st-fg: var(--cd-open-fg); }
+[data-st="failed"] { --st-bg: var(--cd-failed-bg); --st-fg: var(--cd-failed-fg); }
+[data-st="done"] { --st-bg: var(--cd-done-bg); --st-fg: var(--cd-done-fg); }
+[data-st="decided"] { --st-bg: var(--cd-decided-bg); --st-fg: var(--cd-decided-fg); }
+[data-st="todo"] { --st-bg: var(--cd-todo-bg); --st-fg: var(--cd-todo-fg); }
+[data-st="unverified"] { --st-bg: var(--cd-unverified-bg); --st-fg: var(--cd-unverified-fg); }
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; overflow-anchor: none; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+body {
+  margin: 0;
+  background: var(--cd-bg);
+  color: var(--cd-fg);
+  font: 15px/1.5 var(--cd-sans);
+  overflow-wrap: anywhere;
+}
+a { color: var(--cd-link); }
+:focus-visible { outline: 2px solid var(--cd-focus); outline-offset: 2px; border-radius: 3px; }
+code, .cd-mono { font-family: var(--cd-mono); font-size: 0.9em; }
+h1, h2, h3 { line-height: 1.25; margin: 0; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 0.95rem; margin: 0 0 8px; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+.cd-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 16px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-areas: "toc head" "toc body" "toc foot";
+  grid-template-rows: auto 1fr auto;
+  column-gap: 36px;
+}
+.cd-head { grid-area: head; padding: 24px 0 8px; }
+.cd-body { grid-area: body; min-width: 0; }
+.cd-foot { grid-area: foot; }
+.cd-toc { grid-area: toc; }
+.cd-toc-inner { position: sticky; top: 0; padding: 28px 0 16px; }
+.cd-toc-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cd-muted); margin: 0 0 8px; }
+.cd-toc ul { display: flex; flex-direction: column; gap: 2px; }
+.cd-toc a {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 4px 8px; border-radius: 6px;
+  color: var(--cd-muted); text-decoration: none; font-size: 0.9rem;
+}
+.cd-toc a:hover { color: var(--cd-fg); background: var(--cd-soft); }
+.cd-badge {
+  display: inline-block; min-width: 1.4em; padding: 0 6px; border-radius: 999px;
+  background: var(--cd-open-bg); color: var(--cd-open-fg); font-size: 0.75rem; font-weight: 600; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* header */
+.cd-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 0.85rem; color: var(--cd-muted); }
+.cd-live { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.cd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cd-muted); flex: none; }
+.cd-live[data-mode="live"] { color: var(--cd-live); }
+.cd-live[data-mode="live"] .cd-live-dot { background: var(--cd-live); }
+.cd-live[data-mode="lost"] { color: var(--cd-warn); font-weight: 500; }
+.cd-live[data-mode="lost"] .cd-live-dot { background: var(--cd-warn); }
+@media (prefers-reduced-motion: no-preference) {
+  .cd-live[data-mode="live"] .cd-live-dot { animation: cd-pulse 2s ease-in-out infinite; }
+}
+@keyframes cd-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
+.cd-spacer { flex: 1; }
+.cd-btn {
+  font: inherit; font-size: 0.85rem; color: var(--cd-fg); background: var(--cd-card);
+  border: 1px solid var(--cd-line); border-radius: 6px; padding: 3px 10px; cursor: pointer;
+}
+.cd-btn:hover { background: var(--cd-soft); }
+.cd-head h1 { font-size: 1.6rem; margin: 10px 0 2px; }
+.cd-sub { margin: 0; color: var(--cd-muted); }
+.cd-task {
+  margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid var(--cd-line);
+  background: var(--cd-soft); border-radius: 0 6px 6px 0;
+}
+.cd-task-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cd-muted); margin-bottom: 2px; }
+.cd-task-text { white-space: pre-wrap; margin: 0; }
+.cd-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+.cd-search input {
+  flex: 1 1 240px; min-width: 0; font: inherit; color: var(--cd-fg); background: var(--cd-card);
+  border: 1px solid var(--cd-line); border-radius: 8px; padding: 7px 11px;
+}
+.cd-search input::placeholder { color: var(--cd-muted); opacity: 1; }
+.cd-count { font-size: 0.85rem; color: var(--cd-muted); font-variant-numeric: tabular-nums; }
+.cd-vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* sections */
+.cd-sec { padding: 22px 0 6px; border-top: 1px solid var(--cd-line); margin-top: 18px; scroll-margin-top: 8px; }
+.cd-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+.cd-sub-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.cd-sub-head h3 { margin: 0; }
+.cd-muted { color: var(--cd-muted); }
+.cd-small { font-size: 0.85rem; }
+.cd-empty { color: var(--cd-muted); margin: 4px 0; font-size: 0.92rem; }
+.cd-nomatch { color: var(--cd-muted); font-style: italic; margin: 6px 0; font-size: 0.9rem; }
+.cd-block + .cd-block { margin-top: 22px; }
+
+/* chips */
+.cd-chip {
+  display: inline-block; flex: none; padding: 1px 8px; border-radius: 999px;
+  background: var(--st-bg); color: var(--st-fg);
+  font-size: 0.75rem; font-weight: 600; line-height: 1.5; white-space: nowrap; letter-spacing: 0.01em;
+}
+.cd-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--st-fg); flex: none; }
+.cd-kind {
+  display: inline-block; padding: 0 6px; border: 1px solid var(--cd-line); border-radius: 4px;
+  font-size: 0.75rem; color: var(--cd-muted); white-space: nowrap; font-family: var(--cd-mono);
+}
+
+/* filter chips */
+.cd-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.cd-fbtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 0.8rem; color: var(--cd-muted); background: transparent;
+  border: 1px solid var(--cd-line); border-radius: 999px; padding: 2px 10px; cursor: pointer;
+}
+.cd-fbtn:hover { color: var(--cd-fg); background: var(--cd-soft); }
+.cd-fbtn[aria-pressed="true"] { color: var(--cd-bg); background: var(--cd-fg); border-color: var(--cd-fg); }
+.cd-fcount { font-variant-numeric: tabular-nums; opacity: 0.85; }
+
+/* current state */
+.cd-intent { margin: 0 0 12px; max-width: 75ch; }
+.cd-kill { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 16px; font-size: 0.92rem; }
+.cd-kill-text { flex: 1 1 240px; min-width: 0; }
+.cd-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cd-muted); }
+.cd-phases { margin: 4px 0 18px; }
+.cd-phasebar { display: flex; gap: 4px; }
+.cd-seg {
+  flex: 1 1 0; min-width: 28px; display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--cd-muted);
+}
+.cd-seg-bar { height: 10px; border-radius: 5px; background: var(--st-bg); box-shadow: inset 0 0 0 1.5px var(--st-fg); }
+.cd-seg[data-st="done"] .cd-seg-bar, .cd-seg[data-st="running"] .cd-seg-bar,
+.cd-seg[data-st="failed"] .cd-seg-bar, .cd-seg[data-st="blocked"] .cd-seg-bar { background: var(--st-fg); }
+.cd-seg-label { font-size: 0.75rem; text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-seg[aria-pressed="true"] .cd-seg-label { color: var(--cd-fg); font-weight: 600; }
+.cd-phase-detail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 8px; font-size: 0.92rem; min-height: 1.5em; }
+.cd-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px 28px; margin-bottom: 18px; }
+.cd-mini li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 6px 0; border-bottom: 1px solid var(--cd-line); font-size: 0.92rem; }
+.cd-mini li:last-child { border-bottom: 0; }
+.cd-now { flex-basis: 100%; color: var(--cd-muted); font-size: 0.85rem; font-family: var(--cd-mono); }
+.cd-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 12px; }
+.cd-card {
+  display: block; padding: 12px 14px; border: 1px solid var(--cd-line); border-radius: 10px;
+  background: var(--cd-card); color: inherit; text-decoration: none;
+}
+a.cd-card:hover { border-color: var(--cd-muted); }
+.cd-card-label { font-size: 0.8rem; color: var(--cd-muted); }
+.cd-card-value { font-size: 1.6rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; margin: 2px 0; }
+.cd-card-note { font-size: 0.82rem; color: var(--cd-muted); }
+.cd-card[data-attn="1"] { border-color: var(--cd-open-fg); }
+
+/* tables */
+.cd-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cd-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+.cd-table th {
+  text-align: left; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--cd-muted); padding: 6px 10px; border-bottom: 1px solid var(--cd-line); white-space: nowrap;
+}
+.cd-table td { padding: 7px 10px; border-bottom: 1px solid var(--cd-line); vertical-align: top; }
+.cd-table th:first-child, .cd-table td:first-child { padding-left: 0; }
+.cd-table td.cd-nw { white-space: nowrap; }
+.cd-note { display: block; color: var(--cd-muted); font-size: 0.85rem; }
+.cd-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 24px 32px; }
+
+/* agent tree */
+.cd-tree { border-top: 1px solid var(--cd-line); }
+.cd-agent { border-bottom: 1px solid var(--cd-line); }
+.cd-agent > summary {
+  list-style: none; cursor: pointer; padding: 8px 8px 8px calc(4px + var(--cd-depth, 0) * 22px);
+  display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 6px;
+}
+.cd-agent > summary::-webkit-details-marker { display: none; }
+.cd-agent > summary:hover { background: var(--cd-soft); }
+.cd-caret { align-self: start; display: inline-block; width: 14px; height: 1.6rem; text-align: center; color: var(--cd-muted); font-size: 0.7rem; line-height: 1.6rem; transform-origin: 50% 50%; transition: transform 0.15s; }
+.cd-agent[open] > summary .cd-caret { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .cd-caret { transition: none; } }
+.cd-l1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.cd-branch { color: var(--cd-muted); font-family: var(--cd-mono); }
+.cd-type { font-weight: 600; }
+.cd-id { font-family: var(--cd-mono); font-size: 0.85rem; color: var(--cd-muted); }
+.cd-desc { flex: 1 1 200px; min-width: 0; }
+.cd-dur { font-variant-numeric: tabular-nums; color: var(--cd-muted); font-size: 0.85rem; white-space: nowrap; }
+.cd-l2 { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 14px; font-size: 0.84rem; color: var(--cd-muted); margin-top: 2px; }
+.cd-l2 .cd-act { font-family: var(--cd-mono); font-size: 0.8rem; }
+.cd-gate[data-g="blocked"], .cd-gate[data-g="escalated"] { color: var(--cd-warn); font-weight: 600; }
+.cd-agent-body { padding: 4px 12px 14px calc(30px + var(--cd-depth, 0) * 22px); font-size: 0.9rem; }
+.cd-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+.cd-kv dt { color: var(--cd-muted); font-size: 0.82rem; padding-top: 1px; }
+.cd-kv dd { margin: 0; }
+.cd-files li, .cd-reasons li { font-size: 0.85rem; }
+.cd-files li { font-family: var(--cd-mono); }
+.cd-reasons li::before { content: "– "; color: var(--cd-muted); }
+
+/* HITL */
+.cd-dec { padding: 12px 0; border-bottom: 1px solid var(--cd-line); }
+.cd-dec:first-child { padding-top: 2px; }
+.cd-dec-q { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-weight: 600; }
+.cd-dec-meta { font-size: 0.82rem; color: var(--cd-muted); margin-top: 2px; }
+.cd-explain { margin: 8px 0 0; max-width: 75ch; }
+.cd-opts { margin-top: 8px; display: grid; gap: 6px; }
+.cd-opt {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  padding: 8px 10px; border: 1px solid var(--cd-line); border-radius: 8px; background: var(--cd-card);
+}
+.cd-opt-text { flex: 1 1 220px; min-width: 0; }
+.cd-opt-desc { display: block; color: var(--cd-muted); font-size: 0.85rem; }
+.cd-resolution { margin-top: 6px; font-size: 0.92rem; }
+
+/* log */
+.cd-log li {
+  display: grid; grid-template-columns: 4.6em 6.5em minmax(0, 1fr); gap: 2px 10px;
+  padding: 5px 0; border-bottom: 1px solid var(--cd-line); font-size: 0.9rem; align-items: baseline;
+}
+.cd-log time { font-family: var(--cd-mono); font-size: 0.8rem; color: var(--cd-muted); font-variant-numeric: tabular-nums; }
+.cd-log .cd-who { color: var(--cd-muted); font-family: var(--cd-mono); font-size: 0.8rem; margin-right: 6px; }
+.cd-more > summary { cursor: pointer; color: var(--cd-link); font-size: 0.9rem; padding: 8px 0; }
+
+/* results */
+.cd-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; margin-bottom: 10px; }
+.cd-findings li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--cd-line); }
+.cd-findings .cd-f-text { flex: 1 1 260px; min-width: 0; }
+
+.cd-foot { padding: 28px 0 40px; margin-top: 24px; border-top: 1px solid var(--cd-line); color: var(--cd-muted); font-size: 0.85rem; }
+.cd-nodata { padding: 40px 0; color: var(--cd-muted); }
+
+@media (max-width: 860px) {
+  .cd-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "toc" "body" "foot"; grid-template-rows: none; }
+  .cd-head { padding-top: 16px; }
+  .cd-toc-inner { position: static; padding: 6px 0 0; }
+  .cd-toc-title { display: none; }
+  .cd-toc ul { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; }
+  .cd-toc a { padding: 3px 9px; border: 1px solid var(--cd-line); border-radius: 999px; font-size: 0.85rem; }
+}
+@media (max-width: 520px) {
+  body { font-size: 14.5px; }
+  .cd-head h1 { font-size: 1.35rem; }
+  .cd-agent > summary { padding-left: calc(2px + var(--cd-depth, 0) * 12px); }
+  .cd-agent-body { padding-left: calc(22px + var(--cd-depth, 0) * 12px); padding-right: 4px; }
+  .cd-log li { grid-template-columns: 4.6em minmax(0, 1fr); }
+  .cd-log li > span:last-child { grid-column: 1 / -1; }
+  .cd-kv { grid-template-columns: minmax(0, 1fr); }
+  .cd-kv dd { margin-bottom: 6px; }
+}
+</style>
+</head>
+<body>
+<div class="cd-shell">
+  <nav class="cd-toc" aria-label="Sections"><div class="cd-toc-inner"><p class="cd-toc-title">On this page</p><ul id="cd-toc-list"></ul></div></nav>
+
+  <header class="cd-head" id="top">
+    <div class="cd-topline">
+      <span class="cd-live" id="cd-live" data-mode="snapshot" role="status"><span class="cd-live-dot" aria-hidden="true"></span><span id="cd-live-text">snapshot</span></span>
+      <span id="cd-updated"></span>
+      <span class="cd-spacer"></span>
+      <button type="button" class="cd-btn" id="cd-theme" aria-label="Toggle colour theme">Theme</button>
+    </div>
+    <h1 id="cd-h1">Conductor</h1>
+    <p class="cd-sub" id="cd-sub" hidden></p>
+    <div class="cd-task" id="cd-task" hidden><span class="cd-task-label">Task as given</span><p class="cd-task-text" id="cd-task-text"></p></div>
+    <div class="cd-search" role="search">
+      <label class="cd-vh" for="cd-q">Search</label>
+      <input type="search" id="cd-q" placeholder="Search tasks, agents, decisions, log…" autocomplete="off" spellcheck="false">
+      <span class="cd-count" id="cd-count" aria-live="polite"></span>
+    </div>
+  </header>
+
+  <main class="cd-body" id="cd-body"></main>
+
+  <footer class="cd-foot" id="cd-foot"></footer>
+</div>
+
+<script>window.__STATUS__ = {"schema":1,"program":"e2e","subtitle":"Conductor run R-20261001-70c85f · plan P1@v1","updated":"2026-10-01T19:21:17.980Z","live":false,"intent":"Find gaps in calc.py and its test coverage, without changing code","orchestrator_task":"You are the orchestrator for plan .conductor/plans/P1-calc-review.md (read it). Execute it: dispatch conductor:worker agents for T1 and T2 in parallel (both in ONE message, run_in_background false), each prompt starting with its envelope: <conductor-task id=\"T…\" plan=\"P1@v1\"> plus a criteria: line copied from the plan, then <\/conductor-task>, then the instructions. When both are back, dispatch T3 the same way with their findings. T3 should delegate checking each function to ONE sub-worker with task id T3.1. Finally summarise the coverage gaps. Do not edit any files.","kill_test":{"state":"open","text":"Stop if the test suite cannot run at all"},"summary":{"phases_done":2,"phases_total":2,"agents_running":0,"agents_done":4,"agents_total":4,"open_human":0,"unverified":0},"phases":[{"id":"PH1","name":"Inspect","note":"read code and run tests","state":"done","tasks":["T1","T2"]},{"id":"PH2","name":"Assess","note":"judge coverage","state":"done","tasks":["T3"]}],"tasks":[{"id":"T1","title":"Inventory functions","phase":"PH1","agent_type":"worker","depends_on":[],"criteria":"every function listed with line numbers","state":"done","agents":["a4718ae5763427bf2"],"in_plan":true},{"id":"T2","title":"Run the tests","phase":"PH1","agent_type":"worker","depends_on":[],"criteria":"exact command + exit code","state":"done","agents":["a019aadb9a20919bf"],"in_plan":true},{"id":"T3","title":"Coverage assessment","phase":"PH2","agent_type":"worker","depends_on":["T1","T2"],"criteria":"each untested function named","state":"done","agents":["af43968e340c14dc3"],"in_plan":true},{"id":"T3.1","title":"Check per-function test coverage","phase":null,"state":"done","agent_type":"conductor:worker","agents":["aef3e6dbb58c4469d"],"in_plan":false}],"agents":[{"id":"a4718ae5763427bf2","parent":"main","depth":1,"type":"conductor:worker","task":"T1","description":"T1 inventory calc functions","state":"done","started":"2026-10-01T19:19:53.762Z","ended":"2026-10-01T19:20:04.395Z","duration_s":10,"last_action":"finished (done)","last_ts":"2026-10-01T19:20:04.395Z","gate":{"blocks":0,"result":"passed","reasons":[]},"report":{"status":"done","summary":"Located the calc module at src/calc.py (only match for calc* in repo). It contains exactly two functions: add(a, b) at line 1 and sub(a, b) at line 5. No classes/methods, no other calc files found. No edits made.","files":"none","needs":"none"},"files_read":1,"files_written":[],"output_path":".conductor/outputs/a4718ae5763427bf2.md"},{"id":"a019aadb9a20919bf","parent":"main","depth":1,"type":"conductor:worker","task":"T2","description":"T2 run calc test suite","state":"done","started":"2026-10-01T19:19:55.419Z","ended":"2026-10-01T19:20:30.833Z","duration_s":35,"last_action":"finished (done)","last_ts":"2026-10-01T19:20:30.833Z","gate":{"blocks":0,"result":"passed","reasons":[]},"report":{"status":"done","summary":"Located the calc module/tests at src/calc.py and src/test_calc.py (repo root <project>). test_calc.py is a plain script (`from src.calc import add; assert add(2, 2) == 4`), not pytest-based, and pytest is not installed in this environment. Ran it directly: command `python3 -m src.test_calc` from the repo root, exit code 0, no output (bare assert passed silently, confirmed by chaining `&& echo EXIT_CODE_SUCCESS` which printed, proving the preceding command succeeded). No files…","files":"none","needs":"none"},"files_read":2,"files_written":[],"output_path":".conductor/outputs/a019aadb9a20919bf.md"},{"id":"af43968e340c14dc3","parent":"main","depth":1,"type":"conductor:worker","task":"T3","description":"T3 coverage assessment","state":"done","started":"2026-10-01T19:20:37.603Z","ended":"2026-10-01T19:21:13.818Z","duration_s":36,"last_action":"finished (done)","last_ts":"2026-10-01T19:21:13.818Z","gate":{"blocks":0,"result":"passed","reasons":[]},"report":{"status":"done","summary":"Delegated per-function coverage check to one T3.1 sub-worker, which read src/calc.py and src/test_calc.py directly. Findings: sub(a,b) (src/calc.py:5) is completely untested — no reference anywhere in src/test_calc.py. add(a,b) (src/calc.py:1) is tested but only via a single case (add(2,2)==4), missing negative, zero, float, and distinct-operand test cases. Final coverage assessment names sub as the untested function and flags add's test as inadequate.","files":"none (read-only assessment; no files created or edited)","needs":"none"},"files_read":0,"files_written":[],"output_path":".conductor/outputs/af43968e340c14dc3.md"},{"id":"aef3e6dbb58c4469d","parent":"af43968e340c14dc3","depth":2,"type":"conductor:worker","task":"T3.1","description":"Check per-function test coverage","state":"done","started":"2026-10-01T19:20:54.862Z","ended":"2026-10-01T19:21:07.103Z","duration_s":12,"last_action":"finished (done)","last_ts":"2026-10-01T19:21:07.103Z","gate":{"blocks":0,"result":"passed","reasons":[]},"report":{"status":"done","summary":"Read src/calc.py (add at lines 1-2, sub at lines 5-6) and src/test_calc.py (3-line script) directly, confirming the given context exactly. Determined: (1) sub(a, b) is completely untested — no import, call, or assertion referencing it anywhere in src/test_calc.py. (2) add(a, b) is tested but only with a single case, assert add(2, 2) == 4 — adequacy gaps identified: no negative-number input, no zero input, no float input, and no distinct-operand ordering check (both operands are the same value, 2, so it can't catch argument-order mistakes).","files":"none (read-only assessment, no files created or edited)","needs":"none"},"files_read":2,"files_written":[],"output_path":".conductor/outputs/aef3e6dbb58c4469d.md"}],"decisions":[],"review_queue":[],"results":[],"log":[{"ts":"2026-10-01T19:21:13.818Z","kind":"agent_stop","agent":"worker·af4396","text":"finished — gate passed"},{"ts":"2026-10-01T19:21:07.103Z","kind":"agent_stop","agent":"worker·aef3e6","text":"finished — gate passed"},{"ts":"2026-10-01T19:20:58.155Z","kind":"observe_file","agent":"worker·aef3e6","text":"Read src/test_calc.py"},{"ts":"2026-10-01T19:20:57.545Z","kind":"observe_file","agent":"worker·aef3e6","text":"Read src/calc.py"},{"ts":"2026-10-01T19:20:54.862Z","kind":"agent_start","agent":"worker·aef3e6","text":"started conductor:worker"},{"ts":"2026-10-01T19:20:54.808Z","kind":"dispatch","agent":"worker·af4396","text":"dispatch → conductor:worker [T3.1] Check per-function test coverage"},{"ts":"2026-10-01T19:20:49.185Z","kind":"dispatch_denied","agent":"worker·af4396","text":"dispatch refused: conductor:worker"},{"ts":"2026-10-01T19:20:43.957Z","kind":"dispatch_denied","agent":"worker·af4396","text":"dispatch refused: conductor:worker"},{"ts":"2026-10-01T19:20:37.603Z","kind":"agent_start","agent":"worker·af4396","text":"started conductor:worker"},{"ts":"2026-10-01T19:20:37.532Z","kind":"dispatch","agent":"orchestrator","text":"dispatch → conductor:worker [T3] T3 coverage assessment"},{"ts":"2026-10-01T19:20:30.833Z","kind":"agent_stop","agent":"worker·a019aa","text":"finished — gate passed"},{"ts":"2026-10-01T19:20:23.555Z","kind":"exec","agent":"worker·a019aa","text":"Bash: Run calc module test and confirm success exit code"},{"ts":"2026-10-01T19:20:17.410Z","kind":"exec","agent":"worker·a019aa","text":"Bash: Run calc module test suite"},{"ts":"2026-10-01T19:20:08.894Z","kind":"exec","agent":"worker·a019aa","text":"Bash: List repo root and check for test config files"},{"ts":"2026-10-01T19:20:04.395Z","kind":"agent_stop","agent":"worker·a4718a","text":"finished — gate passed"},{"ts":"2026-10-01T19:20:03.232Z","kind":"observe_file","agent":"worker·a019aa","text":"Read src/calc.py"},{"ts":"2026-10-01T19:20:01.003Z","kind":"observe_search","agent":"worker·a4718a","text":"Grep ^def |^    def "},{"ts":"2026-10-01T19:20:00.619Z","kind":"observe_file","agent":"worker·a019aa","text":"Read src/test_calc.py"},{"ts":"2026-10-01T19:19:58.079Z","kind":"exec","agent":"worker·a019aa","text":"Bash: Find files related to calc module"},{"ts":"2026-10-01T19:19:57.888Z","kind":"observe_file","agent":"worker·a4718a","text":"Read src/calc.py"},{"ts":"2026-10-01T19:19:55.781Z","kind":"observe_search","agent":"worker·a4718a","text":"Glob **/calc*"},{"ts":"2026-10-01T19:19:55.419Z","kind":"agent_start","agent":"worker·a019aa","text":"started conductor:worker"},{"ts":"2026-10-01T19:19:55.364Z","kind":"dispatch","agent":"orchestrator","text":"dispatch → conductor:worker [T2] T2 run calc test suite"},{"ts":"2026-10-01T19:19:53.762Z","kind":"agent_start","agent":"worker·a4718a","text":"started conductor:worker"},{"ts":"2026-10-01T19:19:53.694Z","kind":"dispatch","agent":"orchestrator","text":"dispatch → conductor:worker [T1] T1 inventory calc functions"},{"ts":"2026-10-01T19:19:50.326Z","kind":"observe_file","agent":"orchestrator","text":"Read .conductor/plans/P1-calc-review.md"},{"ts":"2026-10-01T19:19:47.822Z","kind":"human_message","agent":"orchestrator","text":"human: You are the orchestrator for plan .conductor/plans/P1-calc-review.md (read it). Execute it: dispatch conductor:worker agents for T1 and T2 in parallel (…"}],"log_visible":8,"empty_states":{"decisions":"Nothing needs you right now.","agents":"No agents dispatched yet."},"footer":"Generated from .conductor/events.jsonl (34 events)"};</script>
+<script>
+(function () {
+  'use strict';
+
+  var KNOWN = ['running', 'blocked', 'queued', 'pending', 'open', 'failed', 'done', 'decided', 'todo', 'unverified'];
+  var IS_HTTP = /^http/.test(location.protocol);
+  var POLL_MS = 2000;
+
+  var S = window.__STATUS__;
+  var ui = {
+    q: '',
+    filters: lsGet('cd:filters') || {},
+    open: {},            // details keys the viewer opened
+    phaseSel: null,      // phase index pinned by tap/click
+    conn: 'ok',
+    renderedAt: Date.now()
+  };
+  if (typeof ui.filters !== 'object' || Array.isArray(ui.filters)) ui.filters = {};
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- small utilities ----------
+  function lsGet(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  // h(tag, props, ...children): all text goes through text nodes / setAttribute, never innerHTML.
+  function h(tag, props) {
+    var el = document.createElement(tag);
+    if (props) {
+      Object.keys(props).forEach(function (k) {
+        var v = props[k];
+        if (v == null || v === false) return;
+        if (k === 'class') el.className = v;
+        else if (k === 'text') el.textContent = String(v);
+        else el.setAttribute(k, v === true ? '' : String(v));
+      });
+    }
+    for (var i = 2; i < arguments.length; i++) add(el, arguments[i]);
+    return el;
+  }
+  function add(el, c) {
+    if (c == null || c === false || c === '') return;
+    if (Array.isArray(c)) { c.forEach(function (x) { add(el, x); }); return; }
+    el.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));
+  }
+  function arr(x) { return Array.isArray(x) ? x : []; }
+  function str(x) { return x == null ? '' : String(x); }
+  function stKey(s) { return KNOWN.indexOf(s) >= 0 ? s : 'neutral'; }
+  function chip(s) { return h('span', { class: 'cd-chip', 'data-st': stKey(s) }, s ? String(s) : '—'); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function parseTs(iso) { var t = Date.parse(iso); return isNaN(t) ? null : t; }
+  function fmtTime(iso) {
+    var t = parseTs(iso); if (t == null) return str(iso);
+    var d = new Date(t); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+  }
+  function fmtDateTime(iso) {
+    var t = parseTs(iso); if (t == null) return str(iso);
+    var d = new Date(t);
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + fmtTime(iso) + ' UTC';
+  }
+  function fmtDur(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + pad(s % 60) + 's';
+    return Math.floor(s / 3600) + 'h ' + pad(Math.floor(s / 60) % 60) + 'm';
+  }
+  function fmtAgo(iso) {
+    var t = parseTs(iso); if (t == null) return '';
+    var s = Math.round((Date.now() - t) / 1000);
+    if (s < 5) return 'just now';
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+  function shortType(t) { t = str(t); return t ? t.split(':').pop() : 'agent'; }
+  function shortId(id) { id = str(id); return id === 'main' ? 'main' : id.slice(0, 7); }
+  function isAlive(a) { return (a.state === 'running' || a.state === 'blocked') && !a.ended; }
+  function liveMode() { return IS_HTTP && ui.conn === 'ok' && S && S.live !== false; }
+  function norm(parts) { return parts.map(str).join(' ').toLowerCase(); }
+
+  function agentLabel(id, byId) {
+    if (!id) return '';
+    if (id === 'main') return 'main';
+    var a = byId[id];
+    return a ? shortType(a.type) + ' ' + shortId(id) : shortId(id);
+  }
+  function gateText(g) {
+    if (!g || !g.result) return '';
+    var n = Number(g.blocks) || 0;
+    if (g.result === 'blocked') return 'gate: blocked' + (n > 1 ? ' ×' + n : '');
+    if (g.result === 'escalated') return 'escalated' + (n ? ' after ' + n + ' block' + (n > 1 ? 's' : '') : '');
+    if (g.result === 'passed') return 'gate: passed' + (n ? ' after ' + n + ' block' + (n > 1 ? 's' : '') : '');
+    return 'gate: ' + g.result;
+  }
+  function durEl(a) {
+    if (a.duration_s == null) return null;
+    if (isAlive(a)) return h('span', { class: 'cd-dur', 'data-cd-tick': '', 'data-base': Number(a.duration_s) || 0 }, fmtDur(a.duration_s));
+    return h('span', { class: 'cd-dur' }, fmtDur(a.duration_s));
+  }
+
+  // Row registration: every searchable/filterable row carries these attributes.
+  function rowAttrs(sec, state, q, extra) {
+    var o = { 'data-cd-row': sec, 'data-cd-state': str(state), 'data-cd-q': q };
+    if (extra) Object.keys(extra).forEach(function (k) { o[k] = extra[k]; });
+    return o;
+  }
+  function listWrap(content) {
+    return h('div', { 'data-cd-list': '' }, content,
+      h('p', { class: 'cd-nomatch', hidden: true }, 'Nothing matches the current search or filter.'));
+  }
+
+  function filterBar(sec, states, label) {
+    var counts = {}, order = [];
+    states.forEach(function (s) { s = str(s); if (!(s in counts)) { counts[s] = 0; order.push(s); } counts[s]++; });
+    var sel = ui.filters[sec] || 'all';
+    if (sel !== 'all' && !(sel in counts)) { counts[sel] = 0; order.push(sel); }
+    if (order.length < 2 && sel === 'all') return null;   // one state only: a filter would be clutter
+    order.sort(function (a, b) {
+      var ia = KNOWN.indexOf(a), ib = KNOWN.indexOf(b);
+      if (ia < 0) ia = 99; if (ib < 0) ib = 99;
+      return ia - ib || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    var useDots = sec !== 'log';
+    var mk = function (v, text, n) {
+      return h('button', {
+        type: 'button', class: 'cd-fbtn', 'aria-pressed': sel === v ? 'true' : 'false',
+        'data-cd-filter': sec, 'data-cd-val': v, 'data-cd-fkey': 'f:' + sec + ':' + v
+      }, useDots && v !== 'all' ? h('span', { class: 'cd-dot', 'data-st': stKey(v), 'aria-hidden': 'true' }) : null,
+        text, h('span', { class: 'cd-fcount' }, n));
+    };
+    return h('div', { class: 'cd-filters', role: 'group', 'aria-label': 'Filter ' + label + (useDots ? ' by state' : ' by kind') },
+      mk('all', 'All', states.length),
+      order.map(function (s) { return mk(s, s || '(none)', counts[s]); }));
+  }
+
+  function section(id, title, head, content) {
+    return h('section', { class: 'cd-sec', id: id, 'aria-labelledby': id + '-h', 'data-cd-anchor': 's:' + id },
+      h('div', { class: 'cd-sec-head' }, h('h2', { id: id + '-h' }, title), head),
+      content);
+  }
+  function table(cols, rows) {
+    return h('div', { class: 'cd-scroll' },
+      h('table', { class: 'cd-table' },
+        h('thead', null, h('tr', null, cols.map(function (c) { return h('th', { scope: 'col' }, c); }))),
+        h('tbody', null, rows)));
+  }
+
+  // ---------- derived data ----------
+  function derive(S) {
+    var agents = arr(S.agents), phases = arr(S.phases), tasks = arr(S.tasks);
+    var decisions = arr(S.decisions), review = arr(S.review_queue);
+    var byId = {}; agents.forEach(function (a) { if (a && a.id) byId[a.id] = a; });
+    var s = S.summary || {};
+    var num = function (v, d) { return typeof v === 'number' ? v : d; };
+    var cnt = function (xs, st) { return xs.filter(function (x) { return x.state === st; }).length; };
+    var openDec = cnt(decisions, 'open'), openRev = cnt(review, 'open');
+    return {
+      agents: agents, phases: phases, tasks: tasks, decisions: decisions, review: review, byId: byId,
+      sum: {
+        phases_done: num(s.phases_done, cnt(phases, 'done')),
+        phases_total: num(s.phases_total, phases.length),
+        agents_running: num(s.agents_running, agents.filter(isAlive).length),
+        agents_done: num(s.agents_done, cnt(agents, 'done')),
+        agents_total: num(s.agents_total, agents.length),
+        open_human: num(s.open_human, openDec + openRev),
+        unverified: num(s.unverified, cnt(agents, 'unverified'))
+      }
+    };
+  }
+
+  // ---------- sections ----------
+  function secCurrent(D) {
+    var parts = [];
+    if (S.intent) parts.push(h('p', { class: 'cd-intent' }, S.intent));
+    var kt = S.kill_test;
+    if (kt && (kt.text || kt.state)) {
+      parts.push(h('div', { class: 'cd-kill' }, h('span', { class: 'cd-label' }, 'Kill test'), chip(kt.state), h('span', { class: 'cd-kill-text' }, str(kt.text))));
+    }
+    if (D.phases.length) {
+      var bar = h('div', { class: 'cd-phasebar', id: 'cd-phasebar', role: 'group', 'aria-label': 'Phase progress' },
+        D.phases.map(function (p, i) {
+          return h('button', {
+            type: 'button', class: 'cd-seg', 'data-st': stKey(p.state), 'data-cd-phase': i,
+            'data-cd-fkey': 'ph:' + i, 'aria-pressed': ui.phaseSel === i ? 'true' : 'false',
+            'aria-label': str(p.id) + ' ' + str(p.name) + ': ' + str(p.state)
+          }, h('span', { class: 'cd-seg-bar' }), h('span', { class: 'cd-seg-label' }, str(p.id || ('#' + (i + 1)))));
+        }));
+      parts.push(h('div', { class: 'cd-phases' }, bar, h('div', { class: 'cd-phase-detail', id: 'cd-phase-detail', 'aria-live': 'polite' })));
+    }
+
+    var inProg = D.tasks.filter(function (t) { return t.state === 'running' || t.state === 'blocked'; });
+    var inFlight = D.agents.filter(isAlive);
+    parts.push(h('div', { class: 'cd-two' },
+      h('div', null, h('h3', null, 'Tasks in progress'),
+        inProg.length ? h('ul', { class: 'cd-mini' }, inProg.map(function (t) {
+          var ags = arr(t.agents).filter(function (id) { var a = D.byId[id]; return a && isAlive(a); });
+          return h('li', null, chip(t.state), h('span', { class: 'cd-id' }, str(t.id)), h('span', null, str(t.title)),
+            ags.length ? h('span', { class: 'cd-muted cd-small' }, '· ' + ags.map(function (id) { return agentLabel(id, D.byId); }).join(', ')) : null);
+        })) : h('p', { class: 'cd-empty' }, 'No tasks in progress.')),
+      h('div', null, h('h3', null, 'Agents in flight'),
+        inFlight.length ? h('ul', { class: 'cd-mini' }, inFlight.map(function (a) {
+          return h('li', null, chip(a.state), h('span', { class: 'cd-type' }, shortType(a.type)),
+            a.task ? h('span', { class: 'cd-id' }, str(a.task)) : null,
+            h('span', { class: 'cd-muted cd-small' }, str(a.description)), durEl(a),
+            a.last_action ? h('span', { class: 'cd-now' }, 'now: ' + a.last_action) : null);
+        })) : h('p', { class: 'cd-empty' }, 'No agents running.'))));
+
+    var m = D.sum;
+    var agentNote = m.agents_done + ' done / ' + m.agents_total + ' total';
+    parts.push(h('div', { class: 'cd-cards' },
+      h('div', { class: 'cd-card' }, h('div', { class: 'cd-card-label' }, 'Phases done'),
+        h('div', { class: 'cd-card-value' }, m.phases_done + '/' + m.phases_total)),
+      h('div', { class: 'cd-card' }, h('div', { class: 'cd-card-label' }, 'Agents running'),
+        h('div', { class: 'cd-card-value' }, m.agents_running), h('div', { class: 'cd-card-note' }, agentNote)),
+      h('a', { class: 'cd-card', href: '#hitl', 'data-attn': m.open_human > 0 ? '1' : null },
+        h('div', { class: 'cd-card-label' }, 'Open items for you'),
+        h('div', { class: 'cd-card-value' }, m.open_human),
+        h('div', { class: 'cd-card-note' }, m.open_human ? 'Go to decisions →' : 'Nothing waiting'))));
+
+    return section('current', 'Current state', null, parts);
+  }
+
+  function secFindings() {
+    var items = arr(S.findings);
+    if (!items.length) return null;
+    var rows = items.map(function (f) {
+      var text = f.title || f.text || f.claim || '';
+      return h('li', rowAttrs('findings', f.state, norm([f.id, text, f.note, f.evidence, f.state])),
+        chip(f.state), f.id ? h('span', { class: 'cd-id' }, str(f.id)) : null,
+        h('span', { class: 'cd-f-text' }, str(text), f.note ? h('span', { class: 'cd-note' }, str(f.note)) : null,
+          f.evidence ? h('span', { class: 'cd-note cd-mono' }, str(f.evidence)) : null));
+    });
+    return section('findings', 'Validated findings', filterBar('findings', items.map(function (f) { return f.state; }), 'findings'),
+      listWrap(h('ul', { class: 'cd-findings' }, rows)));
+  }
+
+  function secCompare() {
+    var c = S.compare;
+    if (!c) return null;
+    var rows = Array.isArray(c) ? c : arr(c.rows);
+    if (!rows.length) return null;
+    var cols = (c && arr(c.columns).length) ? c.columns.map(str)
+      : (rows[0] && typeof rows[0] === 'object' && !Array.isArray(rows[0]) ? Object.keys(rows[0]) : []);
+    var trs = rows.map(function (r, i) {
+      var cells = Array.isArray(r) ? r : cols.map(function (k) { return r[k]; });
+      return h('tr', rowAttrs('compare', '', norm(cells)), cells.map(function (v, j) { return h('td', j === 0 ? { class: 'cd-nw' } : null, str(v)); }));
+    });
+    return section('compare', (c && c.title) ? str(c.title) : 'Comparison', null,
+      [c && c.note ? h('p', { class: 'cd-muted cd-small' }, str(c.note)) : null, listWrap(table(cols, trs))]);
+  }
+
+  function secResults() {
+    var items = arr(S.results);
+    if (!items.length) return null;
+    var main = items.filter(function (r) { return r.main; });
+    var rest = items.filter(function (r) { return !r.main; });
+    if (!main.length) { main = rest.slice(0, 3); rest = rest.slice(3); }
+    var cards = h('div', { class: 'cd-results' }, main.map(function (r) {
+      return h('div', rowAttrs('results', '', norm([r.title, r.value, r.note]), { class: 'cd-card' }),
+        h('div', { class: 'cd-card-label' }, str(r.title)),
+        h('div', { class: 'cd-card-value' }, str(r.value)),
+        r.note ? h('div', { class: 'cd-card-note' }, str(r.note)) : null);
+    }));
+    var more = rest.length ? h('details', { class: 'cd-more', 'data-key': 'results-more', 'data-cd-container': '' },
+      h('summary', null, 'Further measurements (' + rest.length + ')'),
+      table(['Measurement', 'Value', 'Note'], rest.map(function (r) {
+        return h('tr', rowAttrs('results', '', norm([r.title, r.value, r.note])),
+          h('td', null, str(r.title)), h('td', { class: 'cd-nw' }, str(r.value)), h('td', { class: 'cd-muted' }, str(r.note)));
+      }))) : null;
+    return section('results', 'Main results', null, listWrap([cards, more]));
+  }
+
+  function secOrchestrator(D) {
+    var tasksByPhase = {};
+    D.tasks.forEach(function (t) { (tasksByPhase[t.phase] = tasksByPhase[t.phase] || []).push(t); });
+    var phaseRows = D.phases.map(function (p) {
+      var ids = arr(p.tasks).length ? arr(p.tasks) : (tasksByPhase[p.id] || []).map(function (t) { return t.id; });
+      var agentIds = {};
+      D.tasks.forEach(function (t) { if (ids.indexOf(t.id) >= 0) arr(t.agents).forEach(function (a) { agentIds[a] = 1; }); });
+      D.agents.forEach(function (a) { if (ids.indexOf(a.task) >= 0) agentIds[a.id] = 1; });
+      var all = Object.keys(agentIds), alive = all.filter(function (id) { return D.byId[id] && isAlive(D.byId[id]); });
+      var agentsTxt = all.length ? all.length + (alive.length ? ' (' + alive.length + ' active)' : '') : '—';
+      return h('tr', rowAttrs('plan', p.state, norm([p.id, p.name, p.note, p.state, ids.join(' ')]), { 'data-cd-anchor': 'p:' + p.id }),
+        h('td', { class: 'cd-nw cd-mono' }, str(p.id)),
+        h('td', null, str(p.name), p.note ? h('span', { class: 'cd-note' }, str(p.note)) : null),
+        h('td', null, chip(p.state)),
+        h('td', { class: 'cd-nw' }, agentsTxt));
+    });
+    var taskRows = D.tasks.map(function (t) {
+      var deps = arr(t.depends_on);
+      var sub = [];
+      if (t.note) sub.push(str(t.note));
+      if (deps.length) sub.push('after ' + deps.join(', '));
+      if (t.in_plan === false) sub.push('not in plan');
+      return h('tr', rowAttrs('tasks', t.state, norm([t.id, t.title, t.note, t.criteria, t.phase, t.state, t.agent_type]), { 'data-cd-anchor': 't:' + t.id }),
+        h('td', { class: 'cd-nw cd-mono' }, str(t.id)),
+        h('td', null, str(t.title), sub.length ? h('span', { class: 'cd-note' }, sub.join(' · ')) : null),
+        h('td', { class: 'cd-nw cd-mono' }, str(t.phase)),
+        h('td', null, chip(t.state)));
+    });
+    var plan = h('div', null,
+      h('div', { class: 'cd-sub-head' }, h('h3', null, 'Plan'), filterBar('plan', D.phases.map(function (p) { return p.state; }), 'plan')),
+      phaseRows.length ? listWrap(table(['Phase', 'What', 'State', 'Agents'], phaseRows)) : h('p', { class: 'cd-empty' }, 'No plan yet.'));
+    var tasks = h('div', null,
+      h('div', { class: 'cd-sub-head' }, h('h3', null, 'Tasks'), filterBar('tasks', D.tasks.map(function (t) { return t.state; }), 'tasks')),
+      taskRows.length ? listWrap(table(['Id', 'Task', 'Phase', 'State'], taskRows)) : h('p', { class: 'cd-empty' }, 'No tasks yet.'));
+    return section('orchestrator', 'Orchestrator', null, h('div', { class: 'cd-grid2' }, plan, tasks));
+  }
+
+  function agentTree(D) {
+    var root = D.byId.main || {
+      id: 'main', type: 'orchestrator', description: 'Main session (orchestrator)',
+      state: S.live === false ? 'ended' : 'running', _synthetic: true
+    };
+    var kids = {};
+    D.agents.forEach(function (a) {
+      if (!a || a.id === 'main') return;
+      var p = a.parent && (a.parent === 'main' || D.byId[a.parent]) ? a.parent : 'main';
+      (kids[p] = kids[p] || []).push(a);
+    });
+    var out = [], seen = {};
+    (function walk(a, d) {
+      if (seen[a.id]) return; seen[a.id] = 1;
+      out.push([a, d]);
+      (kids[a.id] || []).forEach(function (c) { walk(c, d + 1); });
+    })(root, 0);
+    D.agents.forEach(function (a) { if (a && !seen[a.id]) out.push([a, 1]); });   // cycles / strays
+    return out;
+  }
+
+  function secAgents(D) {
+    var tree = agentTree(D);
+    var rows = tree.map(function (pair) {
+      var a = pair[0], depth = pair[1];
+      var g = a.gate || null, gt = gateText(g);
+      var files = arr(a.files_written), rep = a.report || null;
+      var alive = isAlive(a);
+      var meta = [];
+      if (a.last_action) meta.push(h('span', { class: 'cd-act' }, (alive ? 'now: ' : 'last: ') + a.last_action));
+      if (gt && g.result !== 'exempt') meta.push(h('span', { class: 'cd-gate', 'data-g': g.result }, gt));   // exempt = noise at rest
+      if (files.length) meta.push(h('span', null, files.length + ' file' + (files.length > 1 ? 's' : '') + ' written'));
+      var sumText = [a.state, a.type, shortType(a.type), a.task, a.description, a.last_action, gt, files.length ? 'written' : ''];
+      var bodyText = [a.id, rep && rep.summary, rep && rep.status, files.join(' '), a.output_path, g && arr(g.reasons).join(' ')];
+
+      var kv = [];
+      var pushKV = function (k, v) { if (v == null || v === '' || (Array.isArray(v) && !v.length)) return; kv.push(h('dt', null, k), h('dd', null, v)); };
+      pushKV('Agent', a._synthetic ? null : h('span', { class: 'cd-mono' }, str(a.id)));
+      pushKV('Type', str(a.type));
+      if (a._synthetic) pushKV('Role', 'Plans, dispatches and asks you; does not edit the project.');
+      if (rep) pushKV('Report', [rep.status ? chip(rep.status) : null, rep.summary ? h('div', null, str(rep.summary)) : null]);
+      if (g && g.result && !arr(g.reasons).length) pushKV('Gate', gt);
+      if (g && arr(g.reasons).length) pushKV('Gate', [h('div', { class: 'cd-gate', 'data-g': g.result }, gt),
+        h('ul', { class: 'cd-reasons' }, arr(g.reasons).map(function (r) { return h('li', null, str(r)); }))]);
+      if (files.length) pushKV('Files written', h('ul', { class: 'cd-files' }, files.map(function (f) { return h('li', null, str(f)); })));
+      if (a.files_read != null) pushKV('Files read', str(a.files_read));
+      if (a.output_path) pushKV('Output', h('span', { class: 'cd-mono' }, str(a.output_path)));
+      if (a.started) pushKV('Started', fmtDateTime(a.started) + (a.ended ? ' · ended ' + fmtTime(a.ended) : ''));
+      if (!kv.length) kv.push(h('dt', null, 'Details'), h('dd', { class: 'cd-muted' }, 'No report yet.'));
+
+      var d = h('details', rowAttrs('agents', a.state, norm(sumText.concat(bodyText)), {
+        class: 'cd-agent', 'data-key': 'ag:' + a.id, 'data-cd-qs': norm(sumText), 'data-cd-anchor': 'ag:' + a.id
+      }),
+        h('summary', { 'data-cd-fkey': 'ag:' + a.id },
+          h('span', { class: 'cd-caret', 'aria-hidden': 'true' }, '▶'),
+          h('span', { class: 'cd-l1' },
+            depth > 0 ? h('span', { class: 'cd-branch', 'aria-hidden': 'true' }, '└') : null,
+            chip(a.state), h('span', { class: 'cd-type' }, shortType(a.type)),
+            a.task ? h('span', { class: 'cd-id' }, str(a.task)) : null,
+            h('span', { class: 'cd-desc' }, str(a.description)),
+            durEl(a)),
+          meta.length ? h('span', { class: 'cd-l2' }, meta) : null),
+        h('div', { class: 'cd-agent-body' }, h('dl', { class: 'cd-kv' }, kv)));
+      d.style.setProperty('--cd-depth', String(Math.min(depth, 8)));
+      return d;
+    });
+    var states = tree.map(function (p) { return p[0].state; });
+    return section('agents', 'Agents', filterBar('agents', states, 'agents'), listWrap(h('div', { class: 'cd-tree' }, rows)));
+  }
+
+  function secHitl(D) {
+    var decs = D.decisions.slice().sort(function (a, b) {
+      var oa = a.state === 'open' ? 0 : 1, ob = b.state === 'open' ? 0 : 1;
+      if (oa !== ob) return oa - ob;
+      return str(b.ts).localeCompare(str(a.ts));
+    });
+    var decRows = decs.map(function (d) {
+      var isOpen = d.state !== 'decided';
+      var opts = arr(d.options);
+      var meta = [];
+      if (d.asked_by) meta.push('asked by ' + agentLabel(d.asked_by, D.byId));
+      if (d.task) meta.push(str(d.task));
+      if (d.ts) meta.push(fmtDateTime(d.ts));
+      return h('div', rowAttrs('hitl', d.state, norm([d.id, d.q, d.explain, d.resolution, d.task, d.state,
+        opts.map(function (o) { return [o.label, o.description].join(' '); }).join(' ')]), { class: 'cd-dec', 'data-cd-anchor': 'd:' + d.id }),
+        h('div', { class: 'cd-dec-q' }, chip(d.state), d.id ? h('span', { class: 'cd-id' }, str(d.id)) : null, h('span', null, str(d.q))),
+        meta.length ? h('div', { class: 'cd-dec-meta' }, meta.join(' · ')) : null,
+        isOpen && d.explain ? h('p', { class: 'cd-explain' }, str(d.explain)) : null,
+        isOpen && opts.length ? h('div', { class: 'cd-opts' }, opts.map(function (o, i) {
+          var paste = str(o.paste || o.label);
+          return h('div', { class: 'cd-opt' },
+            h('span', { class: 'cd-opt-text' }, h('strong', null, str(o.label || o.id)),
+              o.description ? h('span', { class: 'cd-opt-desc' }, str(o.description)) : null),
+            h('button', { type: 'button', class: 'cd-btn', 'data-cd-copy': paste, 'data-cd-fkey': 'cp:' + d.id + ':' + i,
+              'aria-label': 'Copy reply: ' + paste }, 'Copy reply'));
+        })) : null,
+        !isOpen ? h('div', { class: 'cd-resolution' }, 'Chosen: ', h('strong', null, str(d.resolution || '—'))) : null);
+    });
+    var revRows = D.review.map(function (r) {
+      return h('tr', rowAttrs('hitl', r.state, norm([r.task, r.agent, agentLabel(r.agent, D.byId), r.reason, r.state])),
+        h('td', { class: 'cd-nw cd-mono' }, str(r.task)),
+        h('td', { class: 'cd-nw' }, agentLabel(r.agent, D.byId)),
+        h('td', null, str(r.reason)),
+        h('td', null, chip(r.state)));
+    });
+    var states = decs.map(function (d) { return d.state; }).concat(D.review.map(function (r) { return r.state; }));
+    var empty = (S.empty_states && S.empty_states.decisions) || 'Nothing needs you right now.';
+    var blocks = [h('div', { class: 'cd-block' }, h('h3', null, 'Decisions'),
+      decRows.length ? listWrap(decRows) : h('p', { class: 'cd-empty' }, str(empty)))];
+    if (revRows.length) blocks.push(h('div', { class: 'cd-block' }, h('h3', null, 'Review queue'),
+      listWrap(table(['Task', 'Agent', 'Reason', 'State'], revRows))));
+    return section('hitl', 'Human-in-the-loop', filterBar('hitl', states, 'human-in-the-loop items'), blocks);
+  }
+
+  function secLog(D) {
+    var log = arr(S.log).map(function (e, i) { return [e, i]; });
+    log.sort(function (x, y) { return str(y[0].ts).localeCompare(str(x[0].ts)) || x[1] - y[1]; });   // newest first, stable
+    log = log.map(function (p) { return p[0]; });
+    var nVis = typeof S.log_visible === 'number' ? Math.max(0, S.log_visible) : 8;
+    var li = function (e) {
+      var who = agentLabel(e.agent, D.byId);
+      return h('li', rowAttrs('log', e.kind, norm([e.ts, fmtTime(e.ts), e.kind, e.agent, who, e.text])),
+        h('time', { datetime: str(e.ts), title: fmtDateTime(e.ts) }, fmtTime(e.ts)),
+        h('span', null, h('span', { class: 'cd-kind' }, str(e.kind || 'event'))),
+        h('span', null, who ? h('span', { class: 'cd-who' }, who) : null, str(e.text)));
+    };
+    var first = log.slice(0, nVis), rest = log.slice(nVis);
+    var content = log.length ? listWrap([
+      h('ol', { class: 'cd-log' }, first.map(li)),
+      rest.length ? h('details', { class: 'cd-more', 'data-key': 'log-more', 'data-cd-container': '' },
+        h('summary', null, 'Show ' + rest.length + ' earlier entr' + (rest.length > 1 ? 'ies' : 'y')),
+        h('ol', { class: 'cd-log' }, rest.map(li))) : null
+    ]) : h('p', { class: 'cd-empty' }, 'No events yet.');
+    return section('log', 'Log', filterBar('log', log.map(function (e) { return e.kind; }), 'log'), content);
+  }
+
+  // ---------- render ----------
+  var TOC_LABELS = { current: 'Current state', findings: 'Findings', compare: 'Comparison', results: 'Results',
+    orchestrator: 'Orchestrator', agents: 'Agents', hitl: 'Human-in-the-loop', log: 'Log' };
+
+  function renderHeader(D) {
+    var prog = str(S.program) || 'Conductor';
+    document.title = prog + ' · Conductor';
+    $('cd-h1').textContent = prog;
+    $('cd-sub').textContent = str(S.subtitle);
+    $('cd-sub').hidden = !S.subtitle;
+    $('cd-task-text').textContent = str(S.orchestrator_task);
+    $('cd-task').hidden = !S.orchestrator_task;
+    var f = $('cd-foot');
+    f.textContent = '';
+    add(f, [str(S.footer) || ('Updated ' + fmtDateTime(S.updated)), ' · Conductor dashboard']);
+  }
+
+  function renderToc(ids, D) {
+    var ul = $('cd-toc-list');
+    ul.textContent = '';
+    ids.forEach(function (id) {
+      var badge = id === 'hitl' && D.sum.open_human > 0 ? h('span', { class: 'cd-badge', 'aria-label': D.sum.open_human + ' open' }, D.sum.open_human) : null;
+      ul.appendChild(h('li', null, h('a', { href: '#' + id }, h('span', null, TOC_LABELS[id] || id), badge)));
+    });
+  }
+
+  function render() {
+    var body = $('cd-body');
+    var y = window.scrollY, anchor = findAnchor();
+    var ae = document.activeElement;
+    var fkey = ae && ae.getAttribute ? ae.getAttribute('data-cd-fkey') : null;
+
+    if (!S || typeof S !== 'object') {
+      body.textContent = '';
+      body.appendChild(h('p', { class: 'cd-nodata' }, IS_HTTP ? 'Waiting for status.json…' : 'No status data embedded in this page.'));
+      renderToc([], { sum: {} });
+      updateLive();
+      return;
+    }
+    var D = derive(S);
+    renderHeader(D);
+    var secs = [secCurrent(D), secFindings(), secCompare(), secResults(), secOrchestrator(D), secAgents(D), secHitl(D), secLog(D)]
+      .filter(Boolean);
+    body.textContent = '';
+    secs.forEach(function (s) { body.appendChild(s); });
+    renderToc(secs.map(function (s) { return s.id; }), D);
+
+    Array.prototype.forEach.call(body.querySelectorAll('details[data-key]'), function (d) {
+      if (ui.open[d.getAttribute('data-key')]) d.open = true;
+    });
+    ui.renderedAt = Date.now();
+    applyFilters();
+    showPhase(null);
+    updateLive();
+    tick();
+    restoreScroll(anchor, y);
+    if (fkey) {
+      var all = document.querySelectorAll('[data-cd-fkey]');
+      for (var i = 0; i < all.length; i++) if (all[i].getAttribute('data-cd-fkey') === fkey) { all[i].focus({ preventScroll: true }); break; }
+    }
+  }
+
+  // Keep the viewer's place: pin the first visible keyed element to the same viewport offset.
+  function findAnchor() {
+    var els = document.querySelectorAll('[data-cd-anchor]');
+    var best = null;
+    for (var i = 0; i < els.length; i++) {
+      var r = els[i].getBoundingClientRect();
+      if (r.height === 0) continue;
+      if (r.bottom > 0) { best = { key: els[i].getAttribute('data-cd-anchor'), top: r.top }; if (r.top >= 0) break; }
+    }
+    return best;
+  }
+  function restoreScroll(anchor, y) {
+    var target = y;
+    if (anchor) {
+      var els = document.querySelectorAll('[data-cd-anchor]');
+      for (var i = 0; i < els.length; i++) {
+        if (els[i].getAttribute('data-cd-anchor') === anchor.key && els[i].getBoundingClientRect().height > 0) {
+          target = window.scrollY + els[i].getBoundingClientRect().top - anchor.top;
+          break;
+        }
+      }
+    }
+    window.scrollTo({ top: target, left: 0, behavior: 'instant' });
+  }
+
+  function setAuto(d, want) {
+    if (want && !d.open) { d.open = true; d.setAttribute('data-cd-auto', ''); }
+    else if (!want && d.hasAttribute('data-cd-auto')) { d.open = false; d.removeAttribute('data-cd-auto'); }
+  }
+
+  function applyFilters() {
+    var terms = ui.q.toLowerCase().split(/\s+/).filter(Boolean);
+    var match = function (s) { s = s || ''; return terms.every(function (t) { return s.indexOf(t) >= 0; }); };
+    var rows = document.querySelectorAll('[data-cd-row]');
+    var shown = 0;
+    Array.prototype.forEach.call(rows, function (r) {
+      var f = ui.filters[r.getAttribute('data-cd-row')] || 'all';
+      var vis = (f === 'all' || r.getAttribute('data-cd-state') === f) && match(r.getAttribute('data-cd-q'));
+      r.hidden = !vis;
+      if (vis) shown++;
+      if (r.tagName === 'DETAILS' && r.hasAttribute('data-cd-qs')) {
+        // open an agent row when the match is only inside its collapsed body
+        setAuto(r, vis && terms.length > 0 && !match(r.getAttribute('data-cd-qs')));
+      }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('details[data-cd-container]'), function (d) {
+      var any = terms.length > 0 && d.querySelector('[data-cd-row]:not([hidden])');
+      setAuto(d, !!any);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cd-list]'), function (l) {
+      var all = l.querySelectorAll('[data-cd-row]');
+      var vis = l.querySelectorAll('[data-cd-row]:not([hidden])');
+      var nm = l.querySelector(':scope > .cd-nomatch');
+      if (nm) nm.hidden = !(all.length > 0 && vis.length === 0);
+      var tbl = l.querySelector(':scope > .cd-scroll');
+      if (tbl) tbl.hidden = all.length > 0 && vis.length === 0;
+    });
+    $('cd-count').textContent = shown + ' of ' + rows.length + ' shown';
+  }
+
+  // phase line: hover/focus previews, click pins, default = running phase
+  function defaultPhase() {
+    var ps = arr(S && S.phases);
+    var i = ps.findIndex(function (p) { return p.state === 'running'; });
+    if (i < 0) i = ps.findIndex(function (p) { return p.state !== 'done'; });
+    if (i < 0) i = ps.length - 1;
+    return i;
+  }
+  function showPhase(i) {
+    var el = $('cd-phase-detail');
+    if (!el) return;
+    var ps = arr(S.phases);
+    if (i == null) i = ui.phaseSel != null && ui.phaseSel < ps.length ? ui.phaseSel : defaultPhase();
+    var p = ps[i];
+    el.textContent = '';
+    if (!p) return;
+    var tids = arr(p.tasks).length ? arr(p.tasks) : arr(S.tasks).filter(function (t) { return t.phase === p.id; }).map(function (t) { return t.id; });
+    var done = arr(S.tasks).filter(function (t) { return tids.indexOf(t.id) >= 0 && t.state === 'done'; }).length;
+    add(el, [h('strong', null, str(p.id)), h('span', null, str(p.name)), chip(p.state),
+      tids.length ? h('span', { class: 'cd-muted' }, done + ' of ' + tids.length + ' tasks done') : null,
+      p.note ? h('span', { class: 'cd-muted' }, '· ' + p.note) : null]);
+  }
+
+  function updateLive() {
+    var mode = !IS_HTTP ? 'snapshot' : ui.conn !== 'ok' ? 'lost' : (S && S.live === false ? 'snapshot' : 'live');
+    var el = $('cd-live');
+    el.setAttribute('data-mode', mode);
+    $('cd-live-text').textContent = mode === 'live' ? 'live' : mode === 'lost' ? 'connection lost — showing last state' : 'snapshot';
+  }
+
+  function tick() {
+    if (S && S.updated) $('cd-updated').textContent = 'Updated ' + fmtDateTime(S.updated) + ' · ' + fmtAgo(S.updated);
+    if (!liveMode()) return;
+    var dt = (Date.now() - ui.renderedAt) / 1000;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cd-tick]'), function (el) {
+      el.textContent = fmtDur(Number(el.getAttribute('data-base')) + dt);
+    });
+  }
+
+  // ---------- events ----------
+  var qEl = $('cd-q');
+  qEl.addEventListener('input', function () { ui.q = qEl.value; applyFilters(); });
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var fb = t.closest('[data-cd-filter]');
+    if (fb) {
+      var sec = fb.getAttribute('data-cd-filter'), val = fb.getAttribute('data-cd-val');
+      if (val === 'all') delete ui.filters[sec]; else ui.filters[sec] = val;
+      lsSet('cd:filters', ui.filters);
+      Array.prototype.forEach.call(document.querySelectorAll('[data-cd-filter]'), function (b) {
+        if (b.getAttribute('data-cd-filter') === sec) b.setAttribute('aria-pressed', b === fb ? 'true' : 'false');
+      });
+      applyFilters();
+      return;
+    }
+    var cb = t.closest('[data-cd-copy]');
+    if (cb) { copyText(cb.getAttribute('data-cd-copy'), cb); return; }
+    var seg = t.closest('[data-cd-phase]');
+    if (seg) {
+      var i = Number(seg.getAttribute('data-cd-phase'));
+      ui.phaseSel = ui.phaseSel === i ? null : i;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-cd-phase]'), function (b) {
+        b.setAttribute('aria-pressed', Number(b.getAttribute('data-cd-phase')) === ui.phaseSel ? 'true' : 'false');
+      });
+      showPhase(null);
+      return;
+    }
+    var sm = t.closest('summary');
+    if (sm && sm.parentElement && sm.parentElement.hasAttribute('data-key')) {
+      var d = sm.parentElement;
+      setTimeout(function () {
+        var k = d.getAttribute('data-key');
+        if (d.open) ui.open[k] = 1; else delete ui.open[k];
+        d.removeAttribute('data-cd-auto');
+      }, 0);
+    }
+  });
+  document.addEventListener('mouseover', function (ev) {
+    var seg = ev.target && ev.target.closest && ev.target.closest('[data-cd-phase]');
+    if (seg) showPhase(Number(seg.getAttribute('data-cd-phase')));
+  });
+  document.addEventListener('mouseout', function (ev) {
+    var seg = ev.target && ev.target.closest && ev.target.closest('[data-cd-phase]');
+    if (seg && !(ev.relatedTarget && seg.contains(ev.relatedTarget))) showPhase(null);
+  });
+  document.addEventListener('focusin', function (ev) {
+    var seg = ev.target && ev.target.closest && ev.target.closest('[data-cd-phase]');
+    if (seg) showPhase(Number(seg.getAttribute('data-cd-phase')));
+  });
+  document.addEventListener('focusout', function (ev) {
+    var seg = ev.target && ev.target.closest && ev.target.closest('[data-cd-phase]');
+    if (seg) showPhase(null);
+  });
+
+  function copyText(text, btn) {
+    var ok = function () {
+      btn.textContent = 'Copied ✓';
+      setTimeout(function () { btn.textContent = 'Copy reply'; }, 1500);
+    };
+    var fallback = function () {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var done = false;
+      try { done = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      btn.focus({ preventScroll: true });
+      if (done) ok(); else window.prompt('Copy this reply:', text);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok, fallback);
+    else fallback();
+  }
+
+  // theme toggle
+  var themeBtn = $('cd-theme');
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function effTheme() {
+    var a = document.documentElement.getAttribute('data-theme');
+    return a === 'dark' || a === 'light' ? a : (mq && mq.matches ? 'dark' : 'light');
+  }
+  function syncThemeBtn() {
+    var next = effTheme() === 'dark' ? 'light' : 'dark';
+    themeBtn.textContent = next === 'dark' ? '◐ Dark' : '◑ Light';
+    themeBtn.setAttribute('aria-label', 'Switch to ' + next + ' theme');
+  }
+  themeBtn.addEventListener('click', function () {
+    var next = effTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('cd:theme', next); } catch (e) {}
+    syncThemeBtn();
+  });
+  if (mq && mq.addEventListener) mq.addEventListener('change', syncThemeBtn);
+  syncThemeBtn();
+
+  // ---------- live polling ----------
+  function poll() {
+    fetch('./status.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) {
+        var wasLost = ui.conn !== 'ok';
+        ui.conn = 'ok';
+        if (j && (!S || j.updated !== S.updated)) { S = j; render(); }
+        else if (wasLost) updateLive();
+      })
+      .catch(function () { if (ui.conn !== 'lost') { ui.conn = 'lost'; updateLive(); } })
+      .then(function () { setTimeout(poll, POLL_MS); });
+  }
+
+  render();
+  setInterval(tick, 1000);
+  if (IS_HTTP) poll();
+  window.cdRender = function (next) { if (next) S = next; render(); };   // debugging hook
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+commit fd1b4f65a5e18b2dd4afedf40855c524b1c79e0e
+Author: t <user@example.com>
+Date:   Thu Oct 1 15:34:36 2026 -0400
+
+    Fix mul() bug in calc.py and add full test coverage
+    
+    mul() was returning a+b instead of a*b. Rewrote test_calc.py with
+    plain-assert tests covering add, mul, and safe_div (including
+    negative numbers, zero, and the b==0 case for safe_div).
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+diff --git a/src/calc.py b/src/calc.py
+index a7f6f4c..b3e27c7 100644
+--- a/src/calc.py
++++ b/src/calc.py
+@@ -3,7 +3,7 @@ def add(a, b):
+ 
+ 
+ def mul(a, b):
+-    return a + b  # bug: should be a * b
++    return a * b
+ 
+ 
+ def safe_div(a, b):
+diff --git a/src/test_calc.py b/src/test_calc.py
+index 8240976..1c0a7e2 100644
+--- a/src/test_calc.py
++++ b/src/test_calc.py
+@@ -1,4 +1,21 @@
+-from src.calc import add
++from src.calc import add, mul, safe_div
+ 
++# add
+ assert add(2, 2) == 4
++assert add(-2, 2) == 0
++assert add(-3, -5) == -8
++assert add(0, 0) == 0
++
++# mul
++assert mul(2, 2) == 4
++assert mul(-2, 3) == -6
++assert mul(-2, -3) == 6
++assert mul(0, 5) == 0
++
++# safe_div
++assert safe_div(10, 2) == 5
++assert safe_div(-10, 2) == -5
++assert safe_div(10, 0) is None
++assert safe_div(0, 5) == 0
++
+ print("ok")

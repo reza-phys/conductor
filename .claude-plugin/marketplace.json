@@ -1,0 +1,12 @@
+{
+  "name": "conductor",
+  "description": "Conductor — a multi-agent orchestration harness for Claude Code",
+  "owner": {"name": "Reza Ebadi"},
+  "plugins": [
+    {
+      "name": "conductor",
+      "source": "./",
+      "description": "Plans, nested dispatch, audit gates, provenance and a live dashboard — enforced by hooks."
+    }
+  ]
+}

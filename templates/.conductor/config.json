@@ -1,0 +1,6 @@
+{
+  "program": null,
+  "dispatch": {"enforce_envelope": true, "max_depth": 3, "force_foreground_nested": true, "models": {}},
+  "orchestrator": {"allow_project_edits": false},
+  "gate": {"enabled": true, "require_report": true, "require_verdicts": true, "require_claims": true, "check_evidence": true, "max_blocks": 3, "allow_review_skip": true}
+}

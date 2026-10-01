@@ -1,0 +1,4 @@
+# Derived views and runtime scratch — rebuildable from events.jsonl
+status.json
+status.html
+state/
