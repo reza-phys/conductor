@@ -56,7 +56,7 @@ class HookHarness(unittest.TestCase):
         self.assertFalse(errs.exists() and errs.read_text().strip(), errs.read_text() if errs.exists() else "")
         return json.loads(r.stdout) if r.stdout.strip() else None
 
-    def dispatch(self, tuid, prompt, stype="conductor:worker", agent=None, agent_type=None, **ti):
+    def dispatch(self, tuid, prompt, stype="conductor:worker", agent=None, agent_type=None, **ti):  # noqa: D401
         return self.hook("PreToolUse", agent, agent_type, tool_name="Agent", tool_use_id=tuid,
                          tool_input={"prompt": prompt, "subagent_type": stype, "description": f"d-{tuid}", **ti})
 
@@ -301,6 +301,142 @@ class HookHarness(unittest.TestCase):
         upd = out["hookSpecificOutput"]["updatedInput"]
         self.assertEqual((upd["model"], upd["run_in_background"]), ("haiku", False))
 
+    # --- issue #1 ------------------------------------------------------------------------------------------------
+    def _report(self, task="T1", ev="file:src/app.py"):
+        return (f'<conductor-report task="{task}" status="done">\nsummary: s\nclaims:\n'
+                f'- C1: x is 1 | evidence: {ev}\nfiles: none\nneeds: none\n</conductor-report>')
+
+    def test_f1_gate_runs_at_handback_and_its_refusal_reaches_the_agent(self):
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        # hand-back without evidence ever being read -> refused while the agent can still act on it
+        out = self.hook("PreToolUse", "A1", "conductor:worker", tool_name="SubagentHandback",
+                        tool_input={"message": self._report()})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("never read or wrote", out["hookSpecificOutput"]["permissionDecisionReason"])
+        # the agent fixes it (reads the file, gets the review skipped for this test) and hands back again
+        self.set_gate(require_verdicts=False)
+        self.hook("PostToolUse", "A1", "conductor:worker", tool_name="Read",
+                  tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        self.assertIsNone(self.hook("PreToolUse", "A1", "conductor:worker", tool_name="SubagentHandback",
+                                    tool_input={"message": self._report()}))
+        self.hook("PostToolUse", "A1", "conductor:worker", tool_name="SubagentHandback",
+                  tool_input={"message": self._report()}, tool_response={})
+        # SubagentStop arrives with an empty last message: the logged hand-back is the report
+        self.assertIsNone(self.stop("A1", "conductor:worker", ""))
+        a = self.status()["agents"][0]
+        self.assertEqual((a["state"], a["gate"]["result"]), ("done", "passed"))
+
+    def test_f1_f2_report_read_from_transcript_and_never_blocked_after_handback(self):
+        """The reporter's minirepro: no PreToolUse ran (older plugin), transcript holds the hand-back."""
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        sub = self.root / SID / "subagents"
+        sub.mkdir(parents=True)
+        (sub / "agent-A1.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": self._report(ev="file:a")}}]}}) + "\n")
+        self.assertIsNone(self.stop("A1", "conductor:worker", ""))  # a block here would never be delivered
+        a = self.status()["agents"][0]
+        self.assertEqual((a["state"], a["gate"]["result"]), ("unverified", "escalated"))
+        self.assertNotIn("Missing or malformed report", " ".join(a["gate"]["reasons"]))
+
+    def test_f2_completed_link_closes_a_child_with_no_stop(self):
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        self.hook("PostToolUse", tool_name="Agent", tool_use_id="tu1", tool_input={"subagent_type": "conductor:worker"},
+                  tool_response={"agentId": "A1", "status": "completed"})
+        a = self.status()["agents"][0]
+        self.assertEqual((a["state"], a["gate"]["result"]), ("unverified", "no stop recorded"))
+
+    def test_f4_parallel_background_dispatches_keep_their_tasks(self):
+        for tu, t in (("tu1", "T1"), ("tu2", "T2")):
+            self.dispatch(tu, ENV.format(id=t, c="c"), run_in_background=True)
+        self.hook("PostToolUse", tool_name="Agent", tool_use_id="tu2", tool_input={"subagent_type": "conductor:worker"},
+                  tool_response={"agentId": "A1", "status": "async_launched"})
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        self.hook("SubagentStart", "A2", "conductor:worker")
+        self.hook("PostToolUse", tool_name="Agent", tool_use_id="tu1", tool_input={"subagent_type": "conductor:worker"},
+                  tool_response={"agentId": "A2", "status": "async_launched"})
+        ag = {a["id"]: a["task"] for a in self.status()["agents"]}
+        self.assertEqual(ag, {"A1": "T2", "A2": "T1"})
+
+    def test_f5_internal_helpers_leave_no_trace(self):
+        self.hook("SubagentStop", "H1", "", last_assistant_message="yes, commit and push", background_tasks=[])
+        self.hook("PostToolUse", "H1", "", tool_name="Read", tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        self.assertEqual(self.status()["agents"], [])
+        self.assertFalse((self.root / ".conductor/outputs/H1.md").exists())
+
+    def test_f6_late_init_starts_the_run_and_briefs_once(self):
+        out = self.hook("UserPromptSubmit", prompt="hello")
+        self.assertIn("You are the orchestrator", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIsNone(self.hook("UserPromptSubmit", prompt="again"))
+        st = self.status()
+        self.assertTrue(st["sessions"][0]["run"])
+        # hand-backs and task notifications are not the human
+        self.hook("UserPromptSubmit", prompt='<agent-message from="a1">done</agent-message>')
+        self.assertEqual([m for m in st["sessions"][0]["other"]["log"] if "agent-message" in m["text"]], [])
+
+    def test_bash_guard_for_the_orchestrator(self):
+        deny = lambda cmd: (self.hook("PreToolUse", tool_name="Bash", tool_input={"command": cmd}) or {}) \
+            .get("hookSpecificOutput", {}).get("permissionDecision")  # noqa: E731
+        for cmd in ["cat > notes.md <<'X'\nhi\nX", "echo hi >> src/app.py", "sed -i '' 's/1/2/' src/app.py",
+                    "printf x | tee src/out.txt", "cp /etc/hosts src/", "rm src/app.py"]:
+            self.assertEqual(deny(cmd), "deny", cmd)
+        for cmd in ["ls -la", "cat src/app.py", "python3 -m pytest -q 2>&1 | tail", "echo hi > /dev/null",
+                    "echo plan > .conductor/plans/notes.md", "grep -rn x src > /tmp/out.txt", "git status"]:
+            self.assertIsNone(deny(cmd), cmd)
+        self.assertIsNone(self.hook("PreToolUse", "A9", "conductor:worker", tool_name="Bash",
+                                    tool_input={"command": "echo hi > src/app.py"}))  # workers may write
+
+    def test_partial_reaudit_and_bash_reads_and_line_lists(self):
+        w = "conductor:worker"
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", w)
+        self.hook("PostToolUse", "A1", w, tool_name="Bash", tool_input={"command": "sed -n '1,5p' src/app.py"}, tool_response={})
+        claims = "claims:\n- C1: a | evidence: file:src/app.py:1,3\n- C2: b | evidence: file:src/app.py:2-4\n"
+        self.dispatch("tuR1", f'<conductor-review for="T1">\n{claims}</conductor-review>', stype="conductor:auditor", agent="A1", agent_type=w)
+        self.hook("SubagentStart", "R1", "conductor:auditor")
+        self.hook("PostToolUse", "R1", "conductor:auditor", tool_name="Read", tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        self.assertIsNone(self.stop("R1", "conductor:auditor", '<conductor-report task="review:T1" status="done">\nverdicts:\n'
+                                    '- C1: verified | ok\n- C2: refuted | no\n</conductor-report>'))
+        # re-audit of only the changed claim C2: the second auditor answers for C2 alone
+        claims2 = "claims:\n- C2: b, corrected | evidence: file:src/app.py:2-4\n"
+        self.dispatch("tuR2", f'<conductor-review for="T1">\n{claims2}</conductor-review>', stype="conductor:auditor", agent="A1", agent_type=w)
+        self.hook("SubagentStart", "R2", "conductor:auditor")
+        self.hook("PostToolUse", "R2", "conductor:auditor", tool_name="Read", tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        self.assertIsNone(self.stop("R2", "conductor:auditor", '<conductor-report task="review:T1" status="done">\nverdicts:\n'
+                                    '- C2: verified | ok\n</conductor-report>'))
+        final = ('<conductor-report task="T1" status="done">\nclaims:\n- C1: `a` | evidence: file:src/app.py:1,3\n'
+                 '- C2: b, corrected. | evidence: file:src/app.py:2-4\n</conductor-report>')
+        self.assertIsNone(self.stop("A1", w, final))  # Bash read counts; markdown/full-stop wording differences ignored
+        self.assertEqual(sorted(f["state"] for f in self.status()["findings"]), ["verified", "verified"])
+
+    def test_plan_qualified_keys_and_sessions_view(self):
+        for tu, plan in (("tu1", "P1@v1"), ("tu2", "P2@v1")):
+            self.dispatch(tu, f'<conductor-task id="T1" plan="{plan}">\ncriteria: c\n</conductor-task>\nwork')
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        self.hook("SubagentStart", "A2", "conductor:worker")
+        for tu, a in (("tu1", "A1"), ("tu2", "A2")):
+            self.hook("PostToolUse", tool_name="Agent", tool_use_id=tu, tool_input={"subagent_type": "conductor:worker"},
+                      tool_response={"agentId": a, "status": "completed"})
+        st = self.status()
+        self.assertEqual({a["id"]: a["task_key"] for a in st["agents"]}, {"A1": "P1/T1", "A2": "P2/T1"})
+        sess = st["sessions"][0]
+        self.assertEqual([t["key"] for t in sess["tasks"]], ["P1/T1", "P2/T1"])
+        self.assertEqual([t["id"] for t in sess["tasks"]], ["P1/T1", "P2/T1"])  # ambiguous short id -> full key
+        self.assertIn("work", sess["tasks"][0]["prompt"])
+
+    def test_artifact_build_is_redacted_and_never_polls(self):
+        from conductor import render as r
+        self.hook("UserPromptSubmit", prompt="secret plan for the paper")
+        self.dispatch("tu1", ENV.format(id="T1", c="c") + "private instructions")
+        self.hook("SubagentStart", "A1", "conductor:worker")
+        st = r.build_artifact(self.root / ".conductor")
+        blob = json.dumps(st)
+        self.assertEqual(st["mode"], "artifact")
+        self.assertNotIn("secret plan", blob)
+        self.assertNotIn("private instructions", blob)
+
     def test_gate_escalates_after_max_blocks(self):
         self.dispatch("tu1", ENV.format(id="T1", c="c"))
         self.hook("SubagentStart", "A1", "conductor:worker")
@@ -356,6 +492,13 @@ if __name__ == "__main__":
 
 
 class ProtocolTest(unittest.TestCase):
+    def test_evidence_keeps_semicolons_inside_commands(self):
+        from conductor import protocol
+        ev = protocol.parse_evidence('cmd:python3 -c "import calc; print(calc.mul(2,3))"; file:src/calc.py:5,6')
+        self.assertEqual([(e["kind"], e["ref"]) for e in ev],
+                         [("cmd", 'python3 -c "import calc; print(calc.mul(2,3))"'), ("file", "src/calc.py")])
+        self.assertEqual(ev[1]["lines"], "5,6")
+
     def test_envelope_uses_first_block_report_uses_last(self):
         from conductor import protocol
         p = '<conductor-task id="T1" plan="P1@v1">\ncriteria: a\n</conductor-task>\nthen send <conductor-task id="T1.1">x</conductor-task>'

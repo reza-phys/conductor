@@ -95,7 +95,7 @@
 
 /* state tokens: applied via data-st (chips, dots, phase segments) */
 [data-st] { --st-bg: var(--cd-neutral-bg); --st-fg: var(--cd-neutral-fg); }
-[data-st="running"] { --st-bg: var(--cd-running-bg); --st-fg: var(--cd-running-fg); }
+[data-st="running"], [data-st="active"] { --st-bg: var(--cd-running-bg); --st-fg: var(--cd-running-fg); }
 [data-st="blocked"] { --st-bg: var(--cd-blocked-bg); --st-fg: var(--cd-blocked-fg); }
 [data-st="queued"] { --st-bg: var(--cd-queued-bg); --st-fg: var(--cd-queued-fg); }
 [data-st="pending"] { --st-bg: var(--cd-pending-bg); --st-fg: var(--cd-pending-fg); }
@@ -126,28 +126,59 @@ h3 { font-size: 0.95rem; margin: 0 0 8px; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
 
 .cd-shell {
-  max-width: 1240px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 0 16px;
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  grid-template-areas: "toc head" "toc body" "toc foot";
+  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-areas: "nav head" "nav body" "nav foot";
   grid-template-rows: auto 1fr auto;
-  column-gap: 36px;
+  column-gap: 32px;
 }
-.cd-head { grid-area: head; padding: 24px 0 8px; }
+.cd-head { grid-area: head; padding: 24px 0 8px; min-width: 0; }
 .cd-body { grid-area: body; min-width: 0; }
-.cd-foot { grid-area: foot; }
-.cd-toc { grid-area: toc; }
-.cd-toc-inner { position: sticky; top: 0; padding: 28px 0 16px; }
-.cd-toc-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cd-muted); margin: 0 0 8px; }
-.cd-toc ul { display: flex; flex-direction: column; gap: 2px; }
-.cd-toc a {
-  display: flex; justify-content: space-between; gap: 8px;
-  padding: 4px 8px; border-radius: 6px;
-  color: var(--cd-muted); text-decoration: none; font-size: 0.9rem;
+.cd-foot { grid-area: foot; min-width: 0; }
+
+/* sidebar: overview, sessions, tasks */
+.cd-nav { grid-area: nav; min-width: 0; }
+.cd-nav-inner {
+  position: sticky; top: 0; max-height: 100vh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 22px 6px 24px 0; border-right: 1px solid var(--cd-line);
 }
-.cd-toc a:hover { color: var(--cd-fg); background: var(--cd-soft); }
+.cd-drawer-btn { display: none; }
+.cd-nav-title { display: flex; align-items: baseline; gap: 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cd-muted); margin: 18px 0 6px 8px; }
+.cd-nav a { color: var(--cd-fg); text-decoration: none; }
+.cd-nav a:hover { background: var(--cd-soft); }
+.cd-nav a[aria-current="page"] { background: var(--cd-soft); box-shadow: inset 3px 0 0 var(--cd-focus); font-weight: 600; }
+.cd-nav-ov { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 0.95rem; }
+.cd-nav-jumps { margin: 2px 0 0 12px; padding-left: 8px; border-left: 1px solid var(--cd-line); }
+.cd-nav-jumps a { display: flex; justify-content: space-between; gap: 8px; padding: 2px 8px; border-radius: 6px; font-size: 0.85rem; color: var(--cd-muted); }
+.cd-nav-jumps a:hover { color: var(--cd-fg); }
+.cd-sess { margin-bottom: 4px; }
+.cd-sess-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; }
+.cd-tog {
+  font: inherit; background: none; border: 0; padding: 0; margin-top: 6px; width: 22px; height: 22px; border-radius: 4px;
+  color: var(--cd-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.cd-tog:hover { background: var(--cd-soft); color: var(--cd-fg); }
+.cd-tog .cd-caret { height: auto; line-height: 1; }
+.cd-tog[aria-expanded="true"] .cd-caret { transform: rotate(90deg); }
+.cd-sess-link { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-radius: 6px; min-width: 0; }
+.cd-sess-time { font-size: 0.78rem; color: var(--cd-muted); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 0 6px; align-items: center; }
+.cd-nav-live { display: inline-flex; align-items: center; gap: 4px; color: var(--cd-live); font-weight: 600; }
+.cd-nav-live .cd-live-dot { background: var(--cd-live); width: 7px; height: 7px; }
+.cd-sess-title { font-size: 0.9rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cd-sess-counts { font-size: 0.78rem; color: var(--cd-muted); display: flex; flex-wrap: wrap; gap: 0 8px; align-items: center; }
+.cd-nav-tasks { margin: 1px 0 6px 22px; padding-left: 6px; border-left: 1px solid var(--cd-line); }
+.cd-nav-tasks a { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 2px 7px; padding: 4px 6px; border-radius: 6px; font-size: 0.85rem; }
+.cd-nav-key { font-family: var(--cd-mono); font-size: 0.78rem; color: var(--cd-muted); white-space: nowrap; }
+.cd-nav-ttl { line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cd-nav-other .cd-nav-ttl { color: var(--cd-muted); font-style: italic; }
+
+/* breadcrumbs */
+.cd-crumbs { display: flex; flex-wrap: wrap; gap: 2px 6px; font-size: 0.85rem; color: var(--cd-muted); margin-top: 10px; }
+.cd-crumbs a { color: var(--cd-link); }
+.cd-crumbs [aria-current] { color: var(--cd-fg); }
 .cd-badge {
   display: inline-block; min-width: 1.4em; padding: 0 6px; border-radius: 999px;
   background: var(--cd-open-bg); color: var(--cd-open-fg); font-size: 0.75rem; font-weight: 600; text-align: center;
@@ -286,6 +317,8 @@ a.cd-card:hover { border-color: var(--cd-muted); }
 .cd-branch { color: var(--cd-muted); font-family: var(--cd-mono); }
 .cd-type { font-weight: 600; }
 .cd-id { font-family: var(--cd-mono); font-size: 0.85rem; color: var(--cd-muted); }
+a.cd-id { color: var(--cd-link); }
+#cd-h1:focus:not(:focus-visible) { outline: none; }
 .cd-desc { flex: 1 1 200px; min-width: 0; }
 .cd-dur { font-variant-numeric: tabular-nums; color: var(--cd-muted); font-size: 0.85rem; white-space: nowrap; }
 .cd-l2 { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 14px; font-size: 0.84rem; color: var(--cd-muted); margin-top: 2px; }
@@ -328,16 +361,45 @@ a.cd-card:hover { border-color: var(--cd-muted); }
 .cd-findings li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--cd-line); }
 .cd-findings .cd-f-text { flex: 1 1 260px; min-width: 0; }
 
+/* session + task views */
+.cd-quote {
+  margin: 12px 0 0; padding: 8px 12px; border-left: 3px solid var(--cd-line);
+  background: var(--cd-soft); border-radius: 0 6px 6px 0; font-size: 0.92rem;
+}
+.cd-quote p { margin: 2px 0 0; white-space: pre-wrap; }
+.cd-prompt { margin-top: 12px; }
+.cd-prompt > summary { cursor: pointer; color: var(--cd-link); font-size: 0.9rem; padding: 4px 0; }
+.cd-prompt-text {
+  margin: 6px 0 0; padding: 10px 12px; border: 1px solid var(--cd-line); border-radius: 8px; background: var(--cd-soft);
+  font-family: var(--cd-mono); font-size: 0.82rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cd-gates li { padding: 8px 0; border-bottom: 1px solid var(--cd-line); font-size: 0.92rem; }
+.cd-gates li:last-child { border-bottom: 0; }
+.cd-gate-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.cd-gate-head time { font-family: var(--cd-mono); font-size: 0.8rem; color: var(--cd-muted); }
+.cd-outs li { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 4px 0; font-size: 0.88rem; }
+.cd-path { font-family: var(--cd-mono); font-size: 0.85rem; }
+.cd-hist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 7px 0; border-bottom: 1px solid var(--cd-line); font-size: 0.92rem; }
+.cd-hist li:last-child { border-bottom: 0; }
+.cd-hist .cd-grow { flex: 1 1 200px; min-width: 0; }
+
 .cd-foot { padding: 28px 0 40px; margin-top: 24px; border-top: 1px solid var(--cd-line); color: var(--cd-muted); font-size: 0.85rem; }
 .cd-nodata { padding: 40px 0; color: var(--cd-muted); }
 
 @media (max-width: 860px) {
-  .cd-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "toc" "body" "foot"; grid-template-rows: none; }
-  .cd-head { padding-top: 16px; }
-  .cd-toc-inner { position: static; padding: 6px 0 0; }
-  .cd-toc-title { display: none; }
-  .cd-toc ul { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; }
-  .cd-toc a { padding: 3px 9px; border: 1px solid var(--cd-line); border-radius: 999px; font-size: 0.85rem; }
+  .cd-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "nav" "head" "body" "foot"; grid-template-rows: none; }
+  .cd-head { padding-top: 8px; }
+  .cd-nav-inner { position: static; max-height: none; overflow: visible; padding: 12px 0 0; border-right: 0; }
+  .cd-drawer-btn {
+    display: flex; width: 100%; align-items: center; gap: 8px; text-align: left;
+    font: inherit; font-size: 0.9rem; color: var(--cd-fg); background: var(--cd-soft);
+    border: 1px solid var(--cd-line); border-radius: 8px; padding: 7px 10px; cursor: pointer;
+  }
+  .cd-drawer-btn .cd-caret { height: auto; line-height: 1; }
+  .cd-drawer-btn[aria-expanded="true"] .cd-caret { transform: rotate(90deg); }
+  .cd-drawer-cur { color: var(--cd-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .cd-nav:not([data-open]) .cd-nav-body { display: none; }
+  .cd-nav-body { padding: 8px 0 10px; border-bottom: 1px solid var(--cd-line); }
 }
 @media (max-width: 520px) {
   body { font-size: 14.5px; }
@@ -353,7 +415,10 @@ a.cd-card:hover { border-color: var(--cd-muted); }
 </head>
 <body>
 <div class="cd-shell">
-  <nav class="cd-toc" aria-label="Sections"><div class="cd-toc-inner"><p class="cd-toc-title">On this page</p><ul id="cd-toc-list"></ul></div></nav>
+  <nav class="cd-nav" id="cd-nav" aria-label="Sessions and tasks"><div class="cd-nav-inner" id="cd-nav-inner">
+    <button type="button" class="cd-drawer-btn" id="cd-drawer" aria-expanded="false" aria-controls="cd-nav-body"><span class="cd-caret" aria-hidden="true">▶</span><strong>Sessions</strong><span class="cd-drawer-cur" id="cd-drawer-cur"></span></button>
+    <div class="cd-nav-body" id="cd-nav-body"></div>
+  </div></nav>
 
   <header class="cd-head" id="top">
     <div class="cd-topline">
@@ -363,7 +428,8 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       <span class="cd-spacer"></span>
       <button type="button" class="cd-btn" id="cd-theme" aria-label="Toggle colour theme">Theme</button>
     </div>
-    <h1 id="cd-h1">Conductor</h1>
+    <nav class="cd-crumbs" id="cd-crumbs" aria-label="Breadcrumb" hidden></nav>
+    <h1 id="cd-h1" tabindex="-1">Conductor</h1>
     <p class="cd-sub" id="cd-sub" hidden></p>
     <div class="cd-task" id="cd-task" hidden><span class="cd-task-label">Task as given</span><p class="cd-task-text" id="cd-task-text"></p></div>
     <div class="cd-search" role="search">
@@ -383,8 +449,9 @@ a.cd-card:hover { border-color: var(--cd-muted); }
 (function () {
   'use strict';
 
-  var KNOWN = ['running', 'blocked', 'queued', 'pending', 'open', 'failed', 'done', 'decided', 'todo', 'unverified', 'verified', 'refuted'];
+  var KNOWN = ['running', 'blocked', 'queued', 'pending', 'open', 'failed', 'done', 'decided', 'todo', 'unverified', 'verified', 'refuted', 'active'];
   var IS_HTTP = /^http/.test(location.protocol);
+  var IS_FILE = location.protocol === 'file:';
   var POLL_MS = 2000;
 
   var S = window.__STATUS__;
@@ -394,15 +461,59 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     open: {},            // details keys the viewer opened
     phaseSel: null,      // phase index pinned by tap/click
     conn: 'ok',
-    renderedAt: Date.now()
+    renderedAt: Date.now(),
+    route: null,         // parsed location.hash
+    nav: {},             // sidebar session short -> expanded (only when the viewer toggled it)
+    drawer: false,       // phone drawer open
+    qBy: {},             // search text per route, so back/forward restores it
+    scrollBy: {},        // scroll position per route
+    secIds: null         // overview section ids (sidebar jump list)
   };
   if (typeof ui.filters !== 'object' || Array.isArray(ui.filters)) ui.filters = {};
+  try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) {}
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // Artifact mode (claude.ai): the page may run under a CSP that blocks fetches, so never poll.
+  function isArtifact() { return !!(S && S.mode === 'artifact'); }
+  function canPoll() { return IS_HTTP && !isArtifact(); }
+  // Output/file paths become links only when the page is a local file next to .conductor/ (serve exposes nothing else).
+  function canLinkFiles() { return IS_FILE && !isArtifact(); }
+
+  // ---------- routing ----------
+  // #/                       project overview
+  // #/s/<short>              session
+  // #/s/<short>/t/<P2~T3>    task (task key with "/" written as "~")
+  // #/s/<short>/other        work in the session that belongs to no task
+  // any other hash (#hitl…)  overview, scrolled to that section
+  function dec(x) { try { return decodeURIComponent(x); } catch (e) { return x; } }
+  function parseRoute() {
+    var hs = location.hash || '';
+    if (!/^#\//.test(hs)) return { view: 'overview', key: 'o', jump: hs.length > 1 ? dec(hs.slice(1)) : null };
+    var p = hs.slice(2).split('/').map(dec);
+    if (p[0] === 's' && p[1]) {
+      if (p[2] === 't' && p[3]) {
+        var tk = p[3].replace(/~/g, '/');
+        return { view: 'task', s: p[1], t: tk, key: 't:' + p[1] + ':' + tk };
+      }
+      if (p[2] === 'other') return { view: 'other', s: p[1], key: 'x:' + p[1] };
+      return { view: 'session', s: p[1], key: 's:' + p[1] };
+    }
+    return { view: 'overview', key: 'o' };
+  }
+  function hrefSession(sh) { return '#/s/' + encodeURIComponent(str(sh)); }
+  function hrefTask(sh, key) { return hrefSession(sh) + '/t/' + encodeURIComponent(str(key).replace(/\//g, '~')); }
+  function hrefOther(sh) { return hrefSession(sh) + '/other'; }
+  ui.route = parseRoute();
 
   // ---------- small utilities ----------
   function lsGet(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function saveFilters() {   // per-task filters (keys with ':') stay in memory only
+    var o = {};
+    Object.keys(ui.filters).forEach(function (k) { if (k.indexOf(':') < 0) o[k] = ui.filters[k]; });
+    lsSet('cd:filters', o);
+  }
 
   // h(tag, props, ...children): all text goes through text nodes / setAttribute, never innerHTML.
   function h(tag, props) {
@@ -454,11 +565,30 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     if (s < 86400) return Math.floor(s / 3600) + 'h ago';
     return Math.floor(s / 86400) + 'd ago';
   }
+  function fmtShort(iso) {   // "10-06 13:40" (UTC)
+    var t = parseTs(iso); if (t == null) return str(iso);
+    var d = new Date(t);
+    return pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+  }
+  function fmtEnd(start, end) {   // end time, without the date when it is the same day
+    var fe = fmtShort(end), fs = fmtShort(start);
+    return fe.slice(0, 5) === fs.slice(0, 5) ? fe.slice(6) : fe;
+  }
   function shortType(t) { t = str(t); return t ? t.split(':').pop() : 'agent'; }
   function shortId(id) { id = str(id); return id === 'main' ? 'main' : id.slice(0, 7); }
+  function shortModel(m) { return str(m).replace(/^claude-/, '').replace(/-\d{8}$/, ''); }
+  function keyLabel(k) { return str(k).split('/').join(' / '); }
   function isAlive(a) { return (a.state === 'running' || a.state === 'blocked') && !a.ended; }
-  function liveMode() { return IS_HTTP && ui.conn === 'ok' && S && S.live !== false; }
+  function liveMode() { return canPoll() && ui.conn === 'ok' && S && S.live !== false; }
   function norm(parts) { return parts.map(str).join(' ').toLowerCase(); }
+  function sShort(s) { return str(s && (s.short || str(s.id).slice(0, 6))); }
+  function pathEl(p) {
+    p = str(p);
+    if (!canLinkFiles() || !p) return h('span', { class: 'cd-path' }, p);
+    // the page lives in .conductor/: outputs are siblings, project files are one level up
+    var href = /^\.conductor\//.test(p) ? p.slice('.conductor/'.length) : (/^(\/|[a-z]+:)/i.test(p) ? null : '../' + p);
+    return href ? h('a', { class: 'cd-path', href: encodeURI(href).replace(/[?#]/g, encodeURIComponent) }, p) : h('span', { class: 'cd-path' }, p);
+  }
 
   function agentLabel(id, byId) {
     if (!id) return '';
@@ -491,18 +621,21 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       h('p', { class: 'cd-nomatch', hidden: true }, 'Nothing matches the current search or filter.'));
   }
 
-  function filterBar(sec, states, label) {
+  // opts.labels: value -> button text; opts.by: what the values are ("state", "kind", "agent")
+  function filterBar(sec, states, label, opts) {
+    opts = opts || {};
     var counts = {}, order = [];
     states.forEach(function (s) { s = str(s); if (!(s in counts)) { counts[s] = 0; order.push(s); } counts[s]++; });
     var sel = ui.filters[sec] || 'all';
     if (sel !== 'all' && !(sel in counts)) { counts[sel] = 0; order.push(sel); }
     if (order.length < 2 && sel === 'all') return null;   // one state only: a filter would be clutter
-    order.sort(function (a, b) {
+    var by = opts.by || (/log$/.test(sec) ? 'kind' : 'state');
+    if (by !== 'agent') order.sort(function (a, b) {   // agents keep their order of first appearance
       var ia = KNOWN.indexOf(a), ib = KNOWN.indexOf(b);
       if (ia < 0) ia = 99; if (ib < 0) ib = 99;
       return ia - ib || (a < b ? -1 : a > b ? 1 : 0);
     });
-    var useDots = sec !== 'log';
+    var useDots = by === 'state';
     var mk = function (v, text, n) {
       return h('button', {
         type: 'button', class: 'cd-fbtn', 'aria-pressed': sel === v ? 'true' : 'false',
@@ -510,9 +643,9 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       }, useDots && v !== 'all' ? h('span', { class: 'cd-dot', 'data-st': stKey(v), 'aria-hidden': 'true' }) : null,
         text, h('span', { class: 'cd-fcount' }, n));
     };
-    return h('div', { class: 'cd-filters', role: 'group', 'aria-label': 'Filter ' + label + (useDots ? ' by state' : ' by kind') },
+    return h('div', { class: 'cd-filters', role: 'group', 'aria-label': 'Filter ' + label + ' by ' + by },
       mk('all', 'All', states.length),
-      order.map(function (s) { return mk(s, s || '(none)', counts[s]); }));
+      order.map(function (s) { return mk(s, (opts.labels && opts.labels[s]) || s || '(none)', counts[s]); }));
   }
 
   function section(id, title, head, content) {
@@ -536,7 +669,14 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     var num = function (v, d) { return typeof v === 'number' ? v : d; };
     var cnt = function (xs, st) { return xs.filter(function (x) { return x.state === st; }).length; };
     var openDec = cnt(decisions, 'open'), openRev = cnt(review, 'open');
+    var sessions = arr(S.sessions).filter(function (x) { return x && (x.short || x.id); });
+    var sessBy = {};
+    sessions.forEach(function (x) { if (x.id) sessBy[x.id] = x; });
+    sessions.forEach(function (x) { if (!sessBy[sShort(x)]) sessBy[sShort(x)] = x; });
+    var plans = arr(S.plans);
+    var active = plans.filter(function (p) { return p && p.status === 'active'; })[0] || null;
     return {
+      sessions: sessions, sessBy: sessBy, plans: plans, activePlan: active,
       agents: agents, phases: phases, tasks: tasks, decisions: decisions, review: review, byId: byId,
       sum: {
         phases_done: num(s.phases_done, cnt(phases, 'done')),
@@ -549,6 +689,16 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       }
     };
   }
+
+  function findTask(sess, key) { return arr(sess && sess.tasks).filter(function (t) { return t && t.key === key; })[0] || null; }
+  // newest session that dispatched this task key
+  function taskHref(D, key) {
+    for (var i = 0; i < D.sessions.length; i++) if (findTask(D.sessions[i], key)) return hrefTask(sShort(D.sessions[i]), key);
+    return null;
+  }
+  // a bare id from the active plan's task table (T3) -> its task view, when it was dispatched
+  function planTaskHref(D, id) { return D.activePlan && id ? taskHref(D, str(D.activePlan.id) + '/' + id) : null; }
+  function idLink(href, text) { return href ? h('a', { class: 'cd-id', href: href }, text) : h('span', { class: 'cd-id' }, text); }
 
   // ---------- sections ----------
   function secCurrent(D) {
@@ -576,7 +726,7 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       h('div', null, h('h3', null, 'Tasks in progress'),
         inProg.length ? h('ul', { class: 'cd-mini' }, inProg.map(function (t) {
           var ags = arr(t.agents).filter(function (id) { var a = D.byId[id]; return a && isAlive(a); });
-          return h('li', null, chip(t.state), h('span', { class: 'cd-id' }, str(t.id)), h('span', null, str(t.title)),
+          return h('li', null, chip(t.state), idLink(planTaskHref(D, t.id), str(t.id)), h('span', null, str(t.title)),
             ags.length ? h('span', { class: 'cd-muted cd-small' }, '· ' + ags.map(function (id) { return agentLabel(id, D.byId); }).join(', ')) : null);
         })) : h('p', { class: 'cd-empty' }, 'No tasks in progress.')),
       h('div', null, h('h3', null, 'Agents in flight'),
@@ -602,18 +752,24 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     return section('current', 'Current state', null, parts);
   }
 
-  function secFindings() {
-    var items = arr(S.findings);
-    if (!items.length) return null;
-    var rows = items.map(function (f) {
+  function claimRows(D, items, sec, project) {
+    return items.map(function (f) {
       var text = f.title || f.text || f.claim || '';
-      return h('li', rowAttrs('findings', f.state, norm([f.id, text, f.note, f.evidence, f.state])),
-        chip(f.state), f.id ? h('span', { class: 'cd-id' }, str(f.id)) : null,
+      var label = str(project ? (f.key || f.id) : (f.id || f.key)), href = null;
+      if (project && f.key && f.session && D.sessBy[f.session]) {
+        href = hrefTask(sShort(D.sessBy[f.session]), str(f.key).split('/').slice(0, -1).join('/'));
+      }
+      return h('li', rowAttrs(sec, f.state, norm([f.id, f.key, text, f.note, f.evidence, f.state]), { 'data-cd-anchor': 'c:' + label }),
+        chip(f.state), label ? idLink(href, label) : null,
         h('span', { class: 'cd-f-text' }, str(text), f.note ? h('span', { class: 'cd-note' }, str(f.note)) : null,
           f.evidence ? h('span', { class: 'cd-note cd-mono' }, str(f.evidence)) : null));
     });
+  }
+  function secFindings(D) {
+    var items = arr(S.findings);
+    if (!items.length) return null;
     return section('findings', 'Claims', filterBar('findings', items.map(function (f) { return f.state; }), 'findings'),
-      listWrap(h('ul', { class: 'cd-findings' }, rows)));
+      listWrap(h('ul', { class: 'cd-findings' }, claimRows(D, items, 'findings', true))));
   }
 
   function secCompare() {
@@ -675,7 +831,7 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       if (deps.length) sub.push('after ' + deps.join(', '));
       if (t.in_plan === false) sub.push('not in plan');
       return h('tr', rowAttrs('tasks', t.state, norm([t.id, t.title, t.note, t.criteria, t.phase, t.state, t.agent_type]), { 'data-cd-anchor': 't:' + t.id }),
-        h('td', { class: 'cd-nw cd-mono' }, str(t.id)),
+        h('td', { class: 'cd-nw cd-mono' }, idLink(planTaskHref(D, t.id), str(t.id))),
         h('td', null, str(t.title), sub.length ? h('span', { class: 'cd-note' }, sub.join(' · ')) : null),
         h('td', { class: 'cd-nw cd-mono' }, str(t.phase)),
         h('td', null, chip(t.state)));
@@ -689,57 +845,77 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     return section('orchestrator', 'Orchestrator', null, h('div', { class: 'cd-grid2' }, plan, tasks));
   }
 
-  function agentTree(D) {
-    var root = D.byId.main || {
-      id: 'main', type: 'orchestrator', description: 'Main session (orchestrator)',
-      state: S.live === false ? 'ended' : 'running', _synthetic: true
-    };
-    var kids = {};
-    D.agents.forEach(function (a) {
-      if (!a || a.id === 'main') return;
-      var p = a.parent && (a.parent === 'main' || D.byId[a.parent]) ? a.parent : 'main';
-      (kids[p] = kids[p] || []).push(a);
+  // list: the agents to show. withRoot: hang them under a synthetic orchestrator node (project overview).
+  function agentTree(D, list, withRoot) {
+    var inSet = {};
+    list.forEach(function (a) { if (a && a.id) inSet[a.id] = 1; });
+    var kids = {}, roots = [];
+    list.forEach(function (a) {
+      if (!a || !a.id || a.id === 'main') return;
+      if (a.parent && a.parent !== 'main' && inSet[a.parent]) (kids[a.parent] = kids[a.parent] || []).push(a);
+      else roots.push(a);
     });
     var out = [], seen = {};
-    (function walk(a, d) {
+    function walk(a, d) {
       if (seen[a.id]) return; seen[a.id] = 1;
       out.push([a, d]);
       (kids[a.id] || []).forEach(function (c) { walk(c, d + 1); });
-    })(root, 0);
-    D.agents.forEach(function (a) { if (a && !seen[a.id]) out.push([a, 1]); });   // cycles / strays
+    }
+    var base = 0;
+    if (withRoot) {
+      var root = D.byId.main || {
+        id: 'main', type: 'orchestrator', description: 'Main session (orchestrator)',
+        state: S.live === false ? 'ended' : 'running', _synthetic: true
+      };
+      out.push([root, 0]); seen.main = 1; base = 1;
+    }
+    roots.forEach(function (a) { walk(a, base); });
+    list.forEach(function (a) { if (a && a.id && !seen[a.id]) out.push([a, base]); });   // cycles / strays
     return out;
   }
 
-  function secAgents(D) {
-    var tree = agentTree(D);
+  // opts: {id, title, sec, list, withRoot, project (show plan-qualified task keys), empty}
+  function secAgents(D, opts) {
+    opts = opts || {};
+    var sec = opts.sec || 'agents';
+    var list = opts.list || D.agents;
+    var tree = agentTree(D, list, !!opts.withRoot);
     var rows = tree.map(function (pair) {
       var a = pair[0], depth = pair[1];
       var g = a.gate || null, gt = gateText(g);
       var files = arr(a.files_written), rep = a.report || null;
       var alive = isAlive(a);
+      var review = /^review:/.test(str(a.task));
+      var taskLbl = opts.project && a.task_key ? (review ? 'review:' : '') + a.task_key : a.task;
       var meta = [];
+      if (a.model) meta.push(h('span', null, shortModel(a.model)));
       if (a.last_action) meta.push(h('span', { class: 'cd-act' }, (alive ? 'now: ' : 'last: ') + a.last_action));
       if (gt && g.result !== 'exempt') meta.push(h('span', { class: 'cd-gate', 'data-g': g.result }, gt));   // exempt = noise at rest
       if (files.length) meta.push(h('span', null, files.length + ' file' + (files.length > 1 ? 's' : '') + ' written'));
-      var sumText = [a.state, a.type, shortType(a.type), a.task, a.description, a.last_action, gt, files.length ? 'written' : ''];
+      var sumText = [a.state, a.type, shortType(a.type), taskLbl, a.description, a.last_action, a.model, gt, files.length ? 'written' : ''];
       var bodyText = [a.id, rep && rep.summary, rep && rep.status, files.join(' '), a.output_path, g && arr(g.reasons).join(' ')];
 
       var kv = [];
       var pushKV = function (k, v) { if (v == null || v === '' || (Array.isArray(v) && !v.length)) return; kv.push(h('dt', null, k), h('dd', null, v)); };
       pushKV('Agent', a._synthetic ? null : h('span', { class: 'cd-mono' }, str(a.id)));
       pushKV('Type', str(a.type));
+      pushKV('Model', str(a.model));
       if (a._synthetic) pushKV('Role', 'Plans, dispatches and asks you; does not edit the project.');
-      if (rep) pushKV('Report', [rep.status ? chip(rep.status) : null, rep.summary ? h('div', null, str(rep.summary)) : null]);
+      if (opts.project && a.task_key && a.session && D.sessBy[a.session]) {
+        pushKV('Task', h('a', { href: hrefTask(sShort(D.sessBy[a.session]), a.task_key) }, keyLabel(a.task_key) + ' · session ' + sShort(D.sessBy[a.session])));
+      }
+      if (rep) pushKV('Report', [rep.status ? chip(rep.status) : null, rep.summary ? h('div', null, str(rep.summary)) : null,
+        rep.needs && rep.needs !== 'none' ? h('div', { class: 'cd-muted' }, 'needs: ' + rep.needs) : null]);
       if (g && g.result && !arr(g.reasons).length) pushKV('Gate', gt);
       if (g && arr(g.reasons).length) pushKV('Gate', [h('div', { class: 'cd-gate', 'data-g': g.result }, gt),
         h('ul', { class: 'cd-reasons' }, arr(g.reasons).map(function (r) { return h('li', null, str(r)); }))]);
-      if (files.length) pushKV('Files written', h('ul', { class: 'cd-files' }, files.map(function (f) { return h('li', null, str(f)); })));
+      if (files.length) pushKV('Files written', h('ul', { class: 'cd-files' }, files.map(function (f) { return h('li', null, pathEl(f)); })));
       if (a.files_read != null) pushKV('Files read', str(a.files_read));
-      if (a.output_path) pushKV('Output', h('span', { class: 'cd-mono' }, str(a.output_path)));
+      if (a.output_path) pushKV('Output', pathEl(a.output_path));
       if (a.started) pushKV('Started', fmtDateTime(a.started) + (a.ended ? ' · ended ' + fmtTime(a.ended) : ''));
       if (!kv.length) kv.push(h('dt', null, 'Details'), h('dd', { class: 'cd-muted' }, 'No report yet.'));
 
-      var d = h('details', rowAttrs('agents', a.state, norm(sumText.concat(bodyText)), {
+      var d = h('details', rowAttrs(sec, a.state, norm(sumText.concat(bodyText)), {
         class: 'cd-agent', 'data-key': 'ag:' + a.id, 'data-cd-qs': norm(sumText), 'data-cd-anchor': 'ag:' + a.id
       }),
         h('summary', { 'data-cd-fkey': 'ag:' + a.id },
@@ -747,7 +923,7 @@ a.cd-card:hover { border-color: var(--cd-muted); }
           h('span', { class: 'cd-l1' },
             depth > 0 ? h('span', { class: 'cd-branch', 'aria-hidden': 'true' }, '└') : null,
             chip(a.state), h('span', { class: 'cd-type' }, shortType(a.type)),
-            a.task ? h('span', { class: 'cd-id' }, str(a.task)) : null,
+            taskLbl ? h('span', { class: 'cd-id' }, str(taskLbl)) : null,
             h('span', { class: 'cd-desc' }, str(a.description)),
             durEl(a)),
           meta.length ? h('span', { class: 'cd-l2' }, meta) : null),
@@ -756,7 +932,9 @@ a.cd-card:hover { border-color: var(--cd-muted); }
       return d;
     });
     var states = tree.map(function (p) { return p[0].state; });
-    return section('agents', 'Agents', filterBar('agents', states, 'agents'), listWrap(h('div', { class: 'cd-tree' }, rows)));
+    var content = rows.length ? listWrap(h('div', { class: 'cd-tree' }, rows))
+      : h('p', { class: 'cd-empty' }, str(opts.empty || (S.empty_states && S.empty_states.agents) || 'No agents dispatched yet.'));
+    return section(opts.id || 'agents', opts.title || 'Agents', filterBar(sec, states, 'agents'), content);
   }
 
   function secHitl(D) {
@@ -803,18 +981,21 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     return section('hitl', 'Human-in-the-loop', filterBar('hitl', states, 'human-in-the-loop items'), blocks);
   }
 
+  function logLi(e, D, sec, by, i) {
+    var who = agentLabel(e.agent, D.byId);
+    return h('li', rowAttrs(sec, by === 'agent' ? str(e.agent) : e.kind, norm([e.ts, fmtTime(e.ts), e.kind, e.agent, who, e.text]),
+      i != null ? { 'data-cd-anchor': 'l:' + sec + ':' + i } : null),
+      h('time', { datetime: str(e.ts), title: fmtDateTime(e.ts) }, fmtTime(e.ts)),
+      h('span', null, h('span', { class: 'cd-kind' }, str(e.kind || 'event'))),
+      h('span', null, who ? h('span', { class: 'cd-who' }, who) : null, str(e.text)));
+  }
+
   function secLog(D) {
     var log = arr(S.log).map(function (e, i) { return [e, i]; });
     log.sort(function (x, y) { return str(y[0].ts).localeCompare(str(x[0].ts)) || x[1] - y[1]; });   // newest first, stable
     log = log.map(function (p) { return p[0]; });
     var nVis = typeof S.log_visible === 'number' ? Math.max(0, S.log_visible) : 8;
-    var li = function (e) {
-      var who = agentLabel(e.agent, D.byId);
-      return h('li', rowAttrs('log', e.kind, norm([e.ts, fmtTime(e.ts), e.kind, e.agent, who, e.text])),
-        h('time', { datetime: str(e.ts), title: fmtDateTime(e.ts) }, fmtTime(e.ts)),
-        h('span', null, h('span', { class: 'cd-kind' }, str(e.kind || 'event'))),
-        h('span', null, who ? h('span', { class: 'cd-who' }, who) : null, str(e.text)));
-    };
+    var li = function (e) { return logLi(e, D, 'log', 'kind'); };
     var first = log.slice(0, nVis), rest = log.slice(nVis);
     var content = log.length ? listWrap([
       h('ol', { class: 'cd-log' }, first.map(li)),
@@ -825,52 +1006,341 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     return section('log', 'Log', filterBar('log', log.map(function (e) { return e.kind; }), 'log'), content);
   }
 
+  // Oldest first, everything shown. by: "kind" or "agent" (filter control).
+  function secTimeline(D, entries, opts) {
+    var log = arr(entries).map(function (e, i) { return [e, i]; });
+    log.sort(function (x, y) { return str(x[0].ts).localeCompare(str(y[0].ts)) || x[1] - y[1]; });
+    log = log.map(function (p) { return p[0]; });
+    var by = opts.by || 'kind', labels = {};
+    var vals = log.map(function (e) { return by === 'agent' ? str(e.agent) : str(e.kind); });
+    if (by === 'agent') vals.forEach(function (v) { labels[v] = agentLabel(v, D.byId) || '(none)'; });
+    var content = log.length
+      ? listWrap(h('ol', { class: 'cd-log' }, log.map(function (e, i) { return logLi(e, D, opts.sec, by, i); })))
+      : h('p', { class: 'cd-empty' }, opts.empty || 'No events yet.');
+    return section(opts.id, opts.title, filterBar(opts.sec, vals, 'log', { by: by, labels: labels }), content);
+  }
+
+  // ---------- project overview: plans + recent sessions ----------
+  function sessCounts(s) {
+    var c = s.counts || {}, out = [];
+    var nt = typeof c.tasks === 'number' ? c.tasks : arr(s.tasks).length;
+    out.push(h('span', null, nt + ' task' + (nt === 1 ? '' : 's')));
+    if (c.agents_running) out.push(h('span', null, c.agents_running + ' running'));
+    if (c.open_human) out.push(h('span', { class: 'cd-badge', title: c.open_human + ' item(s) need you' }, c.open_human + ' need' + (c.open_human === 1 ? 's' : '') + ' you'));
+    return out;
+  }
+  function sessWhen(s) {
+    return [fmtShort(s.started),
+      s.live ? h('span', { class: 'cd-nav-live' }, h('span', { class: 'cd-live-dot', 'aria-hidden': 'true' }), 'live')
+        : (s.ended ? h('span', null, '→ ' + fmtEnd(s.started, s.ended)) : null)];
+  }
+  function sessTitle(s) { return str(s.title) || (s.run ? str(s.run) : 'Session ' + sShort(s)); }
+
+  function secHistory(D) {
+    if (!D.plans.length && !D.sessions.length) return null;
+    var planRows = D.plans.map(function (p) {
+      var label = str(p.id) + (p.version ? '@v' + p.version : '');
+      var ss = arr(p.sessions).map(function (id) { return D.sessBy[id]; }).filter(Boolean);
+      return h('li', rowAttrs('plans', p.status, norm([label, p.status, p.goal, p.file, ss.map(sShort).join(' ')]), { 'data-cd-anchor': 'pl:' + label }),
+        chip(p.status), h('span', { class: 'cd-id' }, label),
+        h('span', { class: 'cd-grow' }, str(p.goal),
+          p.file ? h('span', { class: 'cd-note' }, pathEl(p.file)) : null,
+          ss.length ? h('span', { class: 'cd-note' }, 'sessions: ', ss.map(function (s, i) {
+            return [i ? ', ' : '', h('a', { href: hrefSession(sShort(s)) }, sShort(s))];
+          })) : null));
+    });
+    var recent = D.sessions.slice(0, 6).map(function (s) {
+      return h('li', rowAttrs('sessions', s.live ? 'running' : 'done', norm([sShort(s), s.run, s.title, s.started, s.ended]), { 'data-cd-anchor': 'ss:' + sShort(s) }),
+        h('span', { class: 'cd-grow' }, h('a', { href: hrefSession(sShort(s)) }, sessTitle(s)),
+          h('span', { class: 'cd-note' }, sessWhen(s), ' · ', s.run ? h('span', { class: 'cd-mono' }, str(s.run)) : 'no run id')),
+        h('span', { class: 'cd-sess-counts' }, sessCounts(s)));
+    });
+    return section('history', 'Plans & sessions', null, h('div', { class: 'cd-grid2' },
+      h('div', null, h('h3', null, 'Plans'),
+        planRows.length ? listWrap(h('ul', { class: 'cd-hist' }, planRows)) : h('p', { class: 'cd-empty' }, 'No plans yet.')),
+      h('div', null, h('h3', null, 'Recent sessions'),
+        recent.length ? listWrap(h('ul', { class: 'cd-hist' }, recent)) : h('p', { class: 'cd-empty' }, 'No sessions recorded yet.'))));
+  }
+
+  // ---------- session view ----------
+  function kvList(pairs) {
+    var kv = [];
+    pairs.forEach(function (p) {
+      var v = p[1];
+      if (v == null || v === '' || (Array.isArray(v) && !v.length)) return;
+      kv.push(h('dt', null, p[0]), h('dd', null, v));
+    });
+    return h('dl', { class: 'cd-kv' }, kv);
+  }
+
+  function secSessionInfo(s) {
+    return section('session', 'Session', null, kvList([
+      ['Session id', h('span', { class: 'cd-mono' }, str(s.id))],
+      ['Run', s.run ? h('span', { class: 'cd-mono' }, str(s.run)) : h('span', { class: 'cd-muted' }, 'none — Conductor was initialised mid-session; times are the first and last events seen')],
+      ['Started', s.started ? fmtDateTime(s.started) : null],
+      ['Ended', s.live ? h('span', { class: 'cd-nav-live' }, h('span', { class: 'cd-live-dot', 'aria-hidden': 'true' }), 'live') : (s.ended ? fmtDateTime(s.ended) : '—')],
+      ['Counts', h('span', { class: 'cd-sess-counts' }, sessCounts(s))]
+    ]));
+  }
+
+  function secSessionTasks(D, s) {
+    var sh = sShort(s), tasks = arr(s.tasks);
+    var rows = tasks.map(function (t) {
+      var sub = [];
+      if (t.description && t.description !== t.title) sub.push(str(t.description));
+      if (t.parent_task) sub.push('sub-task of ' + t.parent_task);
+      if (t.review === 'skip') sub.push('review skipped');
+      return h('tr', rowAttrs('stasks', t.state, norm([t.key, t.id, t.plan, t.title, t.description, t.criteria, t.state, t.review]), { 'data-cd-anchor': 'st:' + t.key }),
+        h('td', { class: 'cd-nw' }, h('a', { class: 'cd-mono', href: hrefTask(sh, t.key) }, keyLabel(t.key))),
+        h('td', null, str(t.title), sub.length ? h('span', { class: 'cd-note' }, sub.join(' · ')) : null),
+        h('td', { class: 'cd-nw cd-mono' }, str(t.plan)),
+        h('td', { class: 'cd-nw' }, String(arr(t.agents).length)),
+        h('td', null, chip(t.state)));
+    });
+    return section('tasks', 'Tasks', filterBar('stasks', tasks.map(function (t) { return t.state; }), 'tasks'),
+      rows.length ? listWrap(table(['Key', 'Task', 'Plan', 'Agents', 'State'], rows)) : h('p', { class: 'cd-empty' }, 'No tasks were dispatched in this session.'));
+  }
+
+  function otherAgents(D, s) {
+    return arr(s.other && s.other.agents).map(function (id) { return D.byId[id]; }).filter(Boolean);
+  }
+  function otherSecs(D, s) {
+    return [
+      secAgents(D, { id: 'oagents', title: 'Other agents', sec: 'oagents', list: otherAgents(D, s), empty: 'No helper or untracked agents in this session.' }),
+      secTimeline(D, s.other && s.other.log, { id: 'olog', title: 'Other activity log', sec: 'olog', by: 'kind', empty: 'Nothing outside tasks in this session.' })
+    ];
+  }
+
+  // ---------- task view ----------
+  function secTaskHead(D, s, t) {
+    var sh = sShort(s);
+    var parent = t.parent_task ? (findTask(s, t.parent_task)
+      ? h('a', { class: 'cd-mono', href: hrefTask(sh, t.parent_task) }, keyLabel(t.parent_task))
+      : h('span', { class: 'cd-mono' }, keyLabel(t.parent_task))) : null;
+    var parts = [kvList([
+      ['Key', h('span', { class: 'cd-mono' }, str(t.key))],
+      ['State', chip(t.state)],
+      ['Plan', h('span', { class: 'cd-mono' }, str(t.plan))],
+      ['Parent task', parent],
+      ['Review', t.review === 'skip' ? [h('span', null, 'skipped'), h('span', { class: 'cd-note' }, 'Claims are asserted by the worker, not verified by an auditor.')] : str(t.review)],
+      ['Criteria', str(t.criteria)],
+      ['Description', t.description && t.description !== t.title ? str(t.description) : null],
+      ['Session', h('a', { href: hrefSession(sh) }, sessTitle(s))]
+    ])];
+    var aa = t.asked_after;
+    if (aa && aa.text) parts.push(h('div', { class: 'cd-quote' },
+      h('span', { class: 'cd-label' }, 'Asked after' + (aa.ts ? ' · ' + fmtDateTime(aa.ts) : '')), h('p', null, str(aa.text))));
+    if (t.prompt) {
+      parts.push(h('details', { class: 'cd-prompt', 'data-key': 'prompt:' + sh + ':' + t.key },
+        h('summary', null, 'Dispatch prompt (' + str(t.prompt).length + ' chars)'),
+        h('div', { class: 'cd-prompt-text' }, str(t.prompt))));
+    } else {
+      parts.push(h('p', { class: 'cd-empty cd-small' }, 'Dispatch prompt not recorded.'));
+    }
+    return section('task', 'Task', null, parts);
+  }
+
+  function secTaskGates(D, t, agents) {
+    var rows = arr(t.gates).map(function (g, i) {
+      var who = agentLabel(g.agent, D.byId);
+      return h('li', rowAttrs('tgates', 'blocked', norm([g.ts, who, g.agent, 'attempt ' + g.attempt, arr(g.reasons).join(' ')]), { 'data-cd-anchor': 'g:' + i }),
+        h('div', { class: 'cd-gate-head' }, chip('blocked'),
+          h('strong', null, 'attempt ' + str(g.attempt != null ? g.attempt : i + 1)),
+          who ? h('span', { class: 'cd-id' }, who) : null,
+          g.ts ? h('time', { datetime: str(g.ts), title: fmtDateTime(g.ts) }, fmtTime(g.ts)) : null),
+        arr(g.reasons).length ? h('ul', { class: 'cd-reasons' }, arr(g.reasons).map(function (r) { return h('li', null, str(r)); })) : null);
+    });
+    agents.forEach(function (a) {   // escalations live on the agent's gate result
+      if (a.gate && a.gate.result === 'escalated') rows.push(h('li', rowAttrs('tgates', 'open', norm([agentLabel(a.id, D.byId), 'escalated', gateText(a.gate)])),
+        h('div', { class: 'cd-gate-head' }, chip('open'), h('strong', null, gateText(a.gate)), h('span', { class: 'cd-id' }, agentLabel(a.id, D.byId))),
+        h('span', { class: 'cd-note' }, 'Let through after the maximum number of gate blocks; it is in the review queue.')));
+    });
+    return section('gates', 'Gate events', null,
+      rows.length ? listWrap(h('ul', { class: 'cd-gates' }, rows)) : h('p', { class: 'cd-empty' }, 'No gate blocks for this task.'));
+  }
+
+  function secTaskFiles(D, t, agents) {
+    var files = arr(t.files_written);
+    var outs = agents.filter(function (a) { return a.output_path; });
+    var fileRows = files.map(function (f) { return h('li', rowAttrs('tfiles', '', norm([f]), { 'data-cd-anchor': 'f:' + f }), pathEl(f)); });
+    var outRows = outs.map(function (a) {
+      return h('li', rowAttrs('tfiles', '', norm([a.output_path, agentLabel(a.id, D.byId)]), { 'data-cd-anchor': 'o:' + a.id }),
+        h('span', { class: 'cd-id' }, agentLabel(a.id, D.byId)), pathEl(a.output_path));
+    });
+    return section('files', 'Files', null, h('div', { class: 'cd-grid2' },
+      h('div', null, h('h3', null, 'Written'),
+        fileRows.length ? listWrap(h('ul', { class: 'cd-files' }, fileRows)) : h('p', { class: 'cd-empty' }, 'No files written.')),
+      h('div', null, h('h3', null, 'Agent outputs'),
+        outRows.length ? listWrap(h('ul', { class: 'cd-outs' }, outRows)) : h('p', { class: 'cd-empty' }, 'No agent outputs yet.'))));
+  }
+
+  function notFound(what) {
+    return [section('missing', 'Not found', null, [
+      h('p', null, what + ' is not in this status file. It may be older than the sessions kept, or not started yet.'),
+      h('p', null, h('a', { href: '#/' }, '← Project overview'))])];
+  }
+
+  // A view: header text + sections for the current route.
+  function buildView(D) {
+    var r = ui.route, prog = str(S.program) || 'Conductor';
+    var ov = { href: '#/', text: prog };
+    if (r.view === 'overview') {
+      return {
+        title: prog, sub: str(S.subtitle), taskText: str(S.orchestrator_task), crumbs: null,
+        placeholder: 'Search tasks, agents, decisions, log…',
+        secs: [secCurrent(D), secFindings(D), secCompare(), secResults(), secOrchestrator(D), secHistory(D),
+          secAgents(D, { withRoot: true, project: true }), secHitl(D), secLog(D)]
+      };
+    }
+    var s = D.sessBy[r.s];
+    if (!s) return { title: 'Session ' + r.s, crumbs: [ov, { text: 'Session ' + r.s }], placeholder: 'Search…', secs: notFound('Session ' + r.s) };
+    var sh = sShort(s);
+    var sCrumb = { href: hrefSession(sh), text: 'Session ' + sh };
+    var sSub = [s.run ? s.run : 'no run id', fmtShort(s.started) + (s.live ? ' · live' : s.ended ? ' → ' + fmtEnd(s.started, s.ended) : '')].join(' · ');
+    if (r.view === 'session') {
+      return {
+        title: sessTitle(s), sub: sSub, crumbs: [ov, { text: 'Session ' + sh }], placeholder: 'Search this session…',
+        secs: [secSessionInfo(s), secSessionTasks(D, s)].concat(otherSecs(D, s))
+      };
+    }
+    if (r.view === 'other') {
+      return {
+        title: 'Other activity', sub: 'Session ' + sh + ' · ' + sSub + ' · work that belongs to no task',
+        crumbs: [ov, sCrumb, { text: 'Other activity' }], placeholder: 'Search other activity…', secs: otherSecs(D, s)
+      };
+    }
+    var t = findTask(s, r.t);
+    if (!t) return { title: keyLabel(r.t), crumbs: [ov, sCrumb, { text: keyLabel(r.t) }], placeholder: 'Search…', secs: notFound('Task ' + r.t + ' in session ' + sh) };
+    var agents = arr(t.agents).map(function (id) { return D.byId[id]; }).filter(Boolean);
+    return {
+      title: keyLabel(t.key) + ' · ' + str(t.title || t.description),
+      sub: 'Session ' + sh + ' · plan ' + str(t.plan),
+      crumbs: [ov, sCrumb, { text: keyLabel(t.key) }], placeholder: 'Search agents, claims, gates, log…',
+      secs: [
+        secTaskHead(D, s, t),
+        secAgents(D, { id: 'agents', title: 'Agents', sec: 'tagents', list: agents, empty: 'No agents bound to this task yet.' }),
+        section('claims', 'Claims', filterBar('tclaims', arr(t.claims).map(function (c) { return c.state; }), 'claims'),
+          arr(t.claims).length ? listWrap(h('ul', { class: 'cd-findings' }, claimRows(D, arr(t.claims), 'tclaims', false)))
+            : h('p', { class: 'cd-empty' }, 'No claims reported yet.')),
+        secTaskGates(D, t, agents),
+        secTimeline(D, t.log, { id: 'log', title: 'Log', sec: 'tlog:' + sh + ':' + t.key, by: 'agent', empty: 'No events for this task yet.' }),
+        secTaskFiles(D, t, agents)
+      ]
+    };
+  }
+
   // ---------- render ----------
   var TOC_LABELS = { current: 'Current state', findings: 'Claims', compare: 'Comparison', results: 'Results',
-    orchestrator: 'Orchestrator', agents: 'Agents', hitl: 'Human-in-the-loop', log: 'Log' };
+    orchestrator: 'Orchestrator', history: 'Plans & sessions', agents: 'Agents', hitl: 'Human-in-the-loop', log: 'Log' };
 
-  function renderHeader(D) {
+  function renderHeader(V) {
     var prog = str(S.program) || 'Conductor';
-    document.title = prog + ' · Conductor';
-    $('cd-h1').textContent = prog;
-    $('cd-sub').textContent = str(S.subtitle);
-    $('cd-sub').hidden = !S.subtitle;
-    $('cd-task-text').textContent = str(S.orchestrator_task);
-    $('cd-task').hidden = !S.orchestrator_task;
+    document.title = (V.crumbs ? V.title + ' · ' + prog : prog) + ' · Conductor';
+    var cr = $('cd-crumbs');
+    cr.textContent = '';
+    if (V.crumbs) {
+      V.crumbs.forEach(function (c, i) {
+        if (i) cr.appendChild(h('span', { 'aria-hidden': 'true' }, '›'));
+        cr.appendChild(c.href ? h('a', { href: c.href }, c.text) : h('span', { 'aria-current': 'page' }, c.text));
+      });
+    }
+    cr.hidden = !V.crumbs;
+    $('cd-h1').textContent = V.title;
+    $('cd-sub').textContent = str(V.sub);
+    $('cd-sub').hidden = !V.sub;
+    $('cd-task-text').textContent = str(V.taskText);
+    $('cd-task').hidden = !V.taskText;
+    qEl.placeholder = V.placeholder || 'Search…';
     var f = $('cd-foot');
     f.textContent = '';
     add(f, [str(S.footer) || ('Updated ' + fmtDateTime(S.updated)), ' · Conductor dashboard']);
   }
 
-  function renderToc(ids, D) {
-    var ul = $('cd-toc-list');
-    ul.textContent = '';
-    ids.forEach(function (id) {
-      var badge = id === 'hitl' && D.sum.open_human > 0 ? h('span', { class: 'cd-badge', 'aria-label': D.sum.open_human + ' open' }, D.sum.open_human) : null;
-      ul.appendChild(h('li', null, h('a', { href: '#' + id }, h('span', null, TOC_LABELS[id] || id), badge)));
-    });
+  function navLink(href, current, props) {
+    var o = { href: href, 'data-cd-fkey': 'nav:' + href };
+    if (current) o['aria-current'] = 'page';
+    Object.keys(props || {}).forEach(function (k) { o[k] = props[k]; });
+    return o;
   }
 
-  function render() {
+  function renderNav(D) {
+    var inner = $('cd-nav-inner'), body = $('cd-nav-body');
+    var keep = inner.scrollTop;
+    var r = ui.route;
+    body.textContent = '';
+    var oh = D ? D.sum.open_human : 0;
+    body.appendChild(h('a', navLink('#/', r.view === 'overview', { class: 'cd-nav-ov' }),
+      h('span', null, 'Project overview'), oh > 0 ? h('span', { class: 'cd-badge', 'aria-label': oh + ' open for you' }, oh) : null));
+    if (r.view === 'overview' && ui.secIds && ui.secIds.length) {
+      body.appendChild(h('ul', { class: 'cd-nav-jumps', 'aria-label': 'On this page' }, ui.secIds.map(function (id) {
+        var badge = id === 'hitl' && oh > 0 ? h('span', { class: 'cd-badge', 'aria-label': oh + ' open' }, oh) : null;
+        return h('li', null, h('a', { href: '#' + id, 'data-cd-fkey': 'jump:' + id }, h('span', null, TOC_LABELS[id] || id), badge));
+      })));
+    }
+    var sessions = D ? D.sessions : [];
+    body.appendChild(h('p', { class: 'cd-nav-title' }, 'Sessions', sessions.length ? h('span', null, '(' + sessions.length + ')') : null));
+    if (!sessions.length) body.appendChild(h('p', { class: 'cd-empty cd-small' }, D ? 'No sessions recorded yet.' : '—'));
+    var curLabel = 'Project overview';
+    var ul = h('ul', null, sessions.map(function (s, idx) {
+      var sh = sShort(s), here = r.s === sh || (D.sessBy[r.s] === s);
+      var exp = sh in ui.nav ? ui.nav[sh] : (here || s.live || (idx === 0 && !r.s));
+      if (here) curLabel = 'Session ' + sh;
+      var tasks = arr(s.tasks).map(function (t) {
+        var cur = here && r.view === 'task' && r.t === t.key;
+        if (cur) curLabel = keyLabel(t.key);
+        return h('li', null, h('a', navLink(hrefTask(sh, t.key), cur, { title: str(t.plan) + ' / ' + str(t.id) + ' · ' + str(t.title) }),
+          h('span', { class: 'cd-nav-key' }, keyLabel(t.key)), h('span', { class: 'cd-nav-ttl' }, str(t.title || t.description)), chip(t.state)));
+      });
+      var o = s.other || {};
+      if (arr(o.agents).length || arr(o.log).length) {
+        var curO = here && r.view === 'other';
+        if (curO) curLabel = 'Session ' + sh + ' · other';
+        var n = arr(o.agents).length + arr(o.log).length;
+        tasks.push(h('li', { class: 'cd-nav-other' }, h('a', navLink(hrefOther(sh), curO, null),
+          h('span', { class: 'cd-nav-key', 'aria-hidden': 'true' }, '…'), h('span', { class: 'cd-nav-ttl' }, 'Other activity'),
+          h('span', { class: 'cd-nav-key' }, String(n)))));
+      }
+      return h('li', { class: 'cd-sess' },
+        h('div', { class: 'cd-sess-row' },
+          h('button', { type: 'button', class: 'cd-tog', 'aria-expanded': exp ? 'true' : 'false', 'aria-controls': 'cd-nt-' + sh,
+            'data-cd-navtog': sh, 'data-cd-fkey': 'nt:' + sh, 'aria-label': (exp ? 'Hide' : 'Show') + ' tasks of session ' + sh },
+            h('span', { class: 'cd-caret', 'aria-hidden': 'true' }, '▶')),
+          h('a', navLink(hrefSession(sh), here && r.view === 'session', { class: 'cd-sess-link' }),
+            h('span', { class: 'cd-sess-time' }, sessWhen(s)),
+            h('span', { class: 'cd-sess-title' }, sessTitle(s)),
+            h('span', { class: 'cd-sess-counts' }, sessCounts(s)))),
+        h('ul', { class: 'cd-nav-tasks', id: 'cd-nt-' + sh, hidden: !exp }, tasks.length ? tasks : h('li', { class: 'cd-empty cd-small' }, 'No tasks.')));
+    }));
+    body.appendChild(ul);
+    inner.scrollTop = keep;
+    $('cd-drawer-cur').textContent = '· ' + curLabel;
+    $('cd-drawer').setAttribute('aria-expanded', ui.drawer ? 'true' : 'false');
+    if (ui.drawer) $('cd-nav').setAttribute('data-open', ''); else $('cd-nav').removeAttribute('data-open');
+  }
+
+  function render(opts) {
+    opts = opts || {};
     var body = $('cd-body');
-    var y = window.scrollY, anchor = findAnchor();
+    var y = window.scrollY, anchor = opts.nav ? null : findAnchor();
     var ae = document.activeElement;
     var fkey = ae && ae.getAttribute ? ae.getAttribute('data-cd-fkey') : null;
 
     if (!S || typeof S !== 'object') {
       body.textContent = '';
-      body.appendChild(h('p', { class: 'cd-nodata' }, IS_HTTP ? 'Waiting for status.json…' : 'No status data embedded in this page.'));
-      renderToc([], { sum: {} });
+      body.appendChild(h('p', { class: 'cd-nodata' }, canPoll() ? 'Waiting for status.json…' : 'No status data embedded in this page.'));
+      ui.secIds = null;
+      renderNav(null);
       updateLive();
       return;
     }
     var D = derive(S);
-    renderHeader(D);
-    var secs = [secCurrent(D), secFindings(), secCompare(), secResults(), secOrchestrator(D), secAgents(D), secHitl(D), secLog(D)]
-      .filter(Boolean);
+    var V = buildView(D);
+    renderHeader(V);
+    var secs = V.secs.filter(Boolean);
     body.textContent = '';
     secs.forEach(function (s) { body.appendChild(s); });
-    renderToc(secs.map(function (s) { return s.id; }), D);
+    ui.secIds = ui.route.view === 'overview' ? secs.map(function (s) { return s.id; }) : null;
+    renderNav(D);
 
     Array.prototype.forEach.call(body.querySelectorAll('details[data-key]'), function (d) {
       if (ui.open[d.getAttribute('data-key')]) d.open = true;
@@ -880,7 +1350,11 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     showPhase(null);
     updateLive();
     tick();
-    restoreScroll(anchor, y);
+    if (opts.nav) {
+      var jt = ui.route.jump && document.getElementById(ui.route.jump);
+      if (jt) jt.scrollIntoView({ behavior: 'instant', block: 'start' });
+      else window.scrollTo({ top: opts.y || 0, left: 0, behavior: 'instant' });
+    } else restoreScroll(anchor, y);
     if (fkey) {
       var all = document.querySelectorAll('[data-cd-fkey]');
       for (var i = 0; i < all.length; i++) if (all[i].getAttribute('data-cd-fkey') === fkey) { all[i].focus({ preventScroll: true }); break; }
@@ -971,7 +1445,7 @@ a.cd-card:hover { border-color: var(--cd-muted); }
   }
 
   function updateLive() {
-    var mode = !IS_HTTP ? 'snapshot' : ui.conn !== 'ok' ? 'lost' : (S && S.live === false ? 'snapshot' : 'live');
+    var mode = !canPoll() ? 'snapshot' : ui.conn !== 'ok' ? 'lost' : (S && S.live === false ? 'snapshot' : 'live');
     var el = $('cd-live');
     el.setAttribute('data-mode', mode);
     $('cd-live-text').textContent = mode === 'live' ? 'live' : mode === 'lost' ? 'connection lost — showing last state' : 'snapshot';
@@ -997,11 +1471,27 @@ a.cd-card:hover { border-color: var(--cd-muted); }
     if (fb) {
       var sec = fb.getAttribute('data-cd-filter'), val = fb.getAttribute('data-cd-val');
       if (val === 'all') delete ui.filters[sec]; else ui.filters[sec] = val;
-      lsSet('cd:filters', ui.filters);
+      saveFilters();
       Array.prototype.forEach.call(document.querySelectorAll('[data-cd-filter]'), function (b) {
         if (b.getAttribute('data-cd-filter') === sec) b.setAttribute('aria-pressed', b === fb ? 'true' : 'false');
       });
       applyFilters();
+      return;
+    }
+    var nt = t.closest('[data-cd-navtog]');
+    if (nt) {
+      var sh = nt.getAttribute('data-cd-navtog'), exp = nt.getAttribute('aria-expanded') !== 'true';
+      ui.nav[sh] = exp;
+      nt.setAttribute('aria-expanded', exp ? 'true' : 'false');
+      nt.setAttribute('aria-label', (exp ? 'Hide' : 'Show') + ' tasks of session ' + sh);
+      var lst = document.getElementById('cd-nt-' + sh);
+      if (lst) lst.hidden = !exp;
+      return;
+    }
+    if (t.closest('#cd-drawer')) {
+      ui.drawer = !ui.drawer;
+      $('cd-drawer').setAttribute('aria-expanded', ui.drawer ? 'true' : 'false');
+      if (ui.drawer) $('cd-nav').setAttribute('data-open', ''); else $('cd-nav').removeAttribute('data-open');
       return;
     }
     var cb = t.closest('[data-cd-copy]');
@@ -1084,8 +1574,29 @@ a.cd-card:hover { border-color: var(--cd-muted); }
   if (mq && mq.addEventListener) mq.addEventListener('change', syncThemeBtn);
   syncThemeBtn();
 
+  // ---------- routing ----------
+  window.addEventListener('hashchange', function () {
+    var prev = ui.route, next = parseRoute();
+    if (next.key === prev.key) {   // in-page jump (#hitl) within the overview: the browser scrolls natively
+      ui.route = next;
+      if (ui.drawer) { ui.drawer = false; renderNav(derive(S || {})); }
+      return;
+    }
+    ui.qBy[prev.key] = ui.q;
+    ui.scrollBy[prev.key] = window.scrollY;
+    ui.route = next;
+    ui.q = ui.qBy[next.key] || '';
+    qEl.value = ui.q;
+    var hadDrawer = ui.drawer;
+    ui.drawer = false;
+    render({ nav: true, y: ui.scrollBy[next.key] || 0 });
+    if (hadDrawer) $('cd-h1').focus({ preventScroll: true });
+  });
+
   // ---------- live polling ----------
+  // Only when served over http(s) and not in artifact mode; the check runs again before every request.
   function poll() {
+    if (!canPoll()) return;
     fetch('./status.json', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (j) {
@@ -1095,12 +1606,12 @@ a.cd-card:hover { border-color: var(--cd-muted); }
         else if (wasLost) updateLive();
       })
       .catch(function () { if (ui.conn !== 'lost') { ui.conn = 'lost'; updateLive(); } })
-      .then(function () { setTimeout(poll, POLL_MS); });
+      .then(function () { if (canPoll()) setTimeout(poll, POLL_MS); });
   }
 
-  render();
+  render({ nav: true, y: 0 });   // first paint: honour an in-page #section hash
   setInterval(tick, 1000);
-  if (IS_HTTP) poll();
+  if (canPoll()) poll();
   window.cdRender = function (next) { if (next) S = next; render(); };   // debugging hook
 })();
 </script>

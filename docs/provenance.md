@@ -29,8 +29,9 @@ Common fields: `ts`, `event`, `session`, `agent` (`main` = orchestrator, otherwi
 | `observe_file` | PostToolUse(Read) | path, sha256 at read time |
 | `observe_search` | PostToolUse(Grep/Glob) | pattern, path |
 | `observe_source` | PostToolUse(WebFetch/WebSearch) | url or query |
-| `exec` | PostToolUse(Bash) | command, description |
+| `exec` | PostToolUse(Bash) | command, description, project files the command named |
 | `observe_mcp` | PostToolUse(mcp__…) | tool, input (clipped), input and response hashes |
+| `handback` | PostToolUse(SubagentHandback) | the hand-back message (the agent's report) and its hash |
 | `produce_file` | PostToolUse(Write/Edit/…) | path, sha256 after write |
 | `write_denied` | PreToolUse(Write/Edit) | path (orchestrator or read-only agent) |
 | `claims_submitted` | PreToolUse(Agent) for a review | task, claims[] (text + evidence) |
@@ -57,7 +58,7 @@ claims:
 - C2: the test suite passes | evidence: cmd:python3 -m src.test_calc
 ```
 
-Global id: `<task>/<Cn>` (e.g. `T1/C2`). Evidence kinds:
+Global id: `<task>/<Cn>` (e.g. `T1/C2`). **Plan-qualified ids:** internally a task is keyed by plan and id (`P2/T1`), so the full claim id is `P2/T1/C2`; the short form is accepted and shown wherever it is unambiguous. Evidence kinds:
 
 | Kind | Checked against |
 |---|---|

@@ -56,8 +56,18 @@ def _evidence_trace(tree: Tree, ev: dict, workers: set[str]) -> str:
     return "NOT OBSERVED"
 
 
+def _task_keys(tree: Tree, ref: str) -> list[str]:
+    """'T1' or 'P2/T1' -> matching plan-qualified task keys (newest plan last)."""
+    keys = {a.get("task") for a in tree.agents.values() if a.get("task")} | set(tree.ledger)
+    keys = {k for k in keys if not str(k).startswith("review:")}
+    return sorted(k for k in keys if k == ref or k.endswith("/" + ref))
+
+
 def claim(tree: Tree, ref: str) -> list[str]:
-    task, _, cid = ref.partition("/")
+    hit = gate.resolve_claim(tree, ref)
+    if not hit:
+        return [f"No claim {ref}."]
+    task, cid = hit
     led = tree.ledger.get(task)
     c = (led or {}).get("final", {}).get(cid) or (led or {}).get("submitted", {}).get(cid)
     if not c:
@@ -84,10 +94,14 @@ def claim(tree: Tree, ref: str) -> list[str]:
     return out
 
 
-def task(tree: Tree, tid: str) -> list[str]:
+def task(tree: Tree, ref: str) -> list[str]:
+    keys = _task_keys(tree, ref)
+    if len(keys) > 1:
+        return [f"{ref} is ambiguous; it exists in several plans: " + ", ".join(keys) + ". Ask for one of these."]
+    tid = keys[0] if keys else ref
     agents = [a for a in tree.agents.values() if a.get("task") == tid or a.get("review_for") == tid]
     if not agents:
-        return [f"No task {tid}."]
+        return [f"No task {ref}."]
     out = [f"Task {tid}"]
     for a in agents:
         d = _dispatch_of(tree, a["id"])
@@ -138,9 +152,9 @@ def file(tree: Tree, path: str) -> list[str]:
 
 
 def query(tree: Tree, ref: str) -> list[str]:
-    if "/" in ref and ref.split("/", 1)[0] in tree.ledger and ref.split("/", 1)[1].startswith("C"):
+    if "/" in ref and ref.rsplit("/", 1)[1][:1] == "C" and gate.resolve_claim(tree, ref):
         return claim(tree, ref)
-    if any(a.get("task") == ref or a.get("review_for") == ref for a in tree.agents.values()):
+    if _task_keys(tree, ref):
         return task(tree, ref)
     if any(k.startswith(ref) for k in tree.agents) and len(ref) >= 4:
         return agent(tree, ref)

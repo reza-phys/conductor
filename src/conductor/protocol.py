@@ -108,7 +108,9 @@ def _items(block: str | None) -> list[tuple[str, str]]:
 
 def parse_evidence(s: str) -> list[dict]:
     out = []
-    for part in re.split(r"\s*;\s*", s.strip()):
+    # Split on ";" only where the next item starts with an evidence kind: commands may contain ";" themselves.
+    kinds = "|".join(EVIDENCE_KINDS)
+    for part in re.split(rf"\s*;\s*(?=(?:{kinds})\s*:)", s.strip(), flags=re.I):
         if not part:
             continue
         kind, sep, ref = part.partition(":")
@@ -117,7 +119,7 @@ def parse_evidence(s: str) -> list[dict]:
             ref = ref.strip().strip("`")
             ev = {"kind": kind, "ref": ref}
             if kind == "file":
-                m = re.match(r"^(.*?):(\d+(?:-\d+)?)$", ref)
+                m = re.match(r"^(.*?):(\d+(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)*)$", ref)  # path:12, path:3-9, path:303,350
                 if m:
                     ev.update(ref=m.group(1), lines=m.group(2))
             out.append(ev)
@@ -188,4 +190,9 @@ ORCHESTRATOR_BRIEF = """\
 - A worker returning status="blocked" with a `needs:` question → ask the human with AskUserQuestion, log the decision in .conductor/plans/decisions.md, then resume the worker with SendMessage or re-dispatch.
 - Ask the human before: irreversible or outward actions (push, publish, send, delete), scope changes, budget overruns, conflicting results, or anything escalated as unverified.
 - The human can run /conductor:status anytime; the live dashboard is /conductor:serve. Full playbook: the conductor:orchestrate skill.
+"""
+
+ARTIFACT_BRIEF = """\
+- Conductor's status Artifact is enabled for this project. After a task finishes (and when the human asks), run
+  /conductor:artifact: it rebuilds the page and tells you how to publish it to the project's fixed Artifact URL.
 """

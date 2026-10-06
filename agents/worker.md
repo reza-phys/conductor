@@ -51,3 +51,5 @@ needs: anything the parent or the human must decide (or "none")
 Use `status="blocked"` with a concrete `needs:` question when you cannot proceed without a decision — do not guess. Blocked and failed reports need no review.
 
 If your envelope has `review="skip"`, the orchestrator judged the task low-stakes: skip step 4. Your claims still need evidence you actually produced, and they will be shown as *asserted*, not verified.
+
+**Handing back.** If your environment ends a run with a hand-back tool (for example `SubagentHandback`) instead of a final message, put the complete report block in the hand-back message. The gate checks it at that moment: if the hand-back is refused, the refusal says exactly what to fix; fix it and hand back again.

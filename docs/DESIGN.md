@@ -112,18 +112,23 @@ worker does the work, producing evidence as it goes (reads, commands, fetches ar
       <conductor-report task="T3" status="done|blocked|failed"> summary, claims, files, needs </conductor-report>
 ```
 
-The `SubagentStop` hook lets a worker finish only if all of these hold:
+The gate runs at the moment the agent reports. Agents report in one of two ways, and the gate runs where a refusal can still reach the agent:
+
+- **Final message** (command-line runs): the `SubagentStop` hook reads `last_assistant_message`, and a refusal (`decision: block`) makes the agent continue.
+- **Hand-back tool** (the desktop app's `SubagentHandback`): the `PreToolUse` hook reads the hand-back `message` and denies the call, so the agent gets the reason and hands back again. `SubagentStop` then never blocks, because the agent has already ended and a block would not reach it. If the hand-back still fails after the last attempt, the result is recorded as unverified.
+
+Either way, a worker may finish only if all of these hold:
 
 1. none of its sub-agents is still running;
 2. the report block is present and well formed, and names the right task;
 3. a `done` report asserts at least one claim, and every claim cites checkable evidence (`file:`, `cmd:`, `url:`, `mcp:`, `claim:`, `hitl:`);
-4. **the evidence was actually observed.** Every cited file, command, URL and MCP call must appear in the log as read, run, fetched or called by this agent or its non-auditor descendants. This is the anti-fabrication check;
+4. **the evidence was actually observed.** Every cited file, command, URL and MCP call must appear in the log as read, run, fetched or called by this agent or its non-auditor descendants. A file also counts if a shell command the agent ran named it (`cat`, `sed -n`, a script); that is weaker than a `Read`, which records the file's hash. This is the anti-fabrication check;
 5. every claim has a verdict from an auditor other than the claiming agent, unless the task envelope says `review="skip"` (allowed by default for low-stakes work; its claims are then shown as *asserted*, never as verified);
 6. nothing is still claimed after being refuted, and no claim was reworded after its review.
 
-An auditor may finish only if it gave a verdict for every claim it was sent, and, if it marked anything verified, the log shows it actually read, ran or fetched something.
+An auditor may finish only if it gave a verdict for every claim in its own review (a re-audit may cover only the claims that changed), and, if it marked anything verified, the log shows it actually read, ran or fetched something.
 
-When a check fails, the hook returns `decision: block` with the exact reason, and the agent continues and fixes it. After `gate.max_blocks` (3) failed attempts the agent is let through, but marked `unverified`, and a review item is opened for the human. A `blocked` report with a `needs:` question becomes an open decision for the human. Reports with status `blocked` or `failed` need no review.
+When a check fails, the agent gets the exact reason and fixes it. If an agent's stop is never recorded but its parent already has the result, the agent is closed as unverified rather than left running. After `gate.max_blocks` (3) failed attempts the agent is let through, but marked `unverified`, and a review item is opened for the human. A `blocked` report with a `needs:` question becomes an open decision for the human. Reports with status `blocked` or `failed` need no review.
 
 ## Human in the loop
 
@@ -169,6 +174,12 @@ The page is one self-contained file:
 - **Behaviour:** search plus state filters; light and dark themes; works at phone width; never shows "done" before it's verified.
 - **Live mode:** served locally, it polls `status.json` and re-renders in place. Opened as a file, it's a snapshot.
 
+A sidebar lists every session in the project (newest first) and, under each, the tasks given in it, plus an "other activity" entry for work outside any task. A task view shows the task header (envelope, dispatch prompt, the human prompt it followed), its agent tree, claims and verdicts, gate events, the log for that task, and the files written.
+
+Tasks are keyed by plan and id (`P2/T3`), so tasks with the same id in different plans never merge. The short id is shown wherever it is unambiguous.
+
+**Artifact (opt-in).** `/conductor:artifact` builds the same page in artifact mode (embedded data, no polling) and has Claude publish it to one fixed claude.ai URL per project, saved in `.conductor/state/artifact.json`. Hooks cannot publish, so Claude does it: after a task finishes and on request. It is off until the human agrees, and leaves prompts and human messages out unless `artifact.include_prompts` is set.
+
 The data contract is in [status-schema.md](status-schema.md).
 
 ## Repository layout
@@ -197,13 +208,17 @@ Verified against Claude Code 2.1.285:
   - `PostToolUse(Agent)` fires in the parent and includes the child's `agentId`;
   - `SubagentStop` includes `last_assistant_message` and `background_tasks`.
 - **Hooks can steer agents:**
-  - `SubagentStop` can block with `{"decision": "block", "reason": …}`, and the agent continues with that reason;
+  - `SubagentStop` can block with `{"decision": "block", "reason": …}`, and the agent continues with that reason, but only if it ended with a final message; after a `SubagentHandback` call (desktop app) the agent has already ended;
+  - hooks fire for `SubagentHandback` like any tool, and its `message` holds the report;
   - `PreToolUse` can deny a call or rewrite its input (`updatedInput`).
 - **Defaults Conductor works around or relies on:**
   - nested agents run in the background by default, which Conductor overrides;
   - `AskUserQuestion` exists only in the main session;
   - `--agent` replaces the system prompt and restricts tools, and `Agent(type, …)` allowlists apply only to a main-session agent;
-  - file-path permission rules work only as `Edit(path)`, and are ignored in untrusted folders, so Conductor enforces write scope with a hook as well.
+  - file-path permission rules work only as `Edit(path)`, and are ignored in untrusted folders, so Conductor enforces write scope with a hook as well, including obvious Bash writes (redirects, `tee`, `sed -i`, `cp`/`mv`/`rm`…); a determined shell command can still get past it;
+  - `subagents/agent-<id>.meta.json` appears a few tens of milliseconds after `SubagentStart`; when several dispatches of the same type are pending, the hook waits briefly for it rather than guess;
+  - Claude Code's own helpers (e.g. prompt suggestions) run as sub-agents with an empty type; they are ignored;
+  - if `/conductor:init` runs mid-session, the next prompt starts the run and delivers the orchestrator brief.
 
 ## Limitations
 
@@ -213,4 +228,5 @@ Verified against Claude Code 2.1.285:
   - it relies on hook payload fields and on one undocumented file, `subagents/*.meta.json`, for exact dispatch binding (with a fallback);
   - a Claude Code update may need a patch, and there is no automatic version check yet.
 - **Waiting on the human:** a blocked sub-agent waits until the orchestrator asks the human and resumes it.
+- **The Bash write guard is best effort.** It catches the usual ways of writing files from a shell, not every possible one.
 - **Platforms:** macOS and Linux only (`python3`, `fcntl`).

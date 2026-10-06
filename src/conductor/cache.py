@@ -14,7 +14,7 @@ from pathlib import Path
 
 from conductor.tree import Tree
 
-VERSION = 1  # bump when Tree's internal state changes shape
+VERSION = 2  # bump when Tree's internal state changes shape
 HEAD_BYTES = 256  # fingerprint of the log's start, to notice a replaced or rewritten log
 
 

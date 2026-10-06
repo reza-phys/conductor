@@ -19,3 +19,5 @@ claims:
 files: none
 needs: none
 </conductor-report>
+
+**Handing back.** If your environment ends a run with a hand-back tool (for example `SubagentHandback`) instead of a final message, put the complete report block in the hand-back message. The gate checks it at that moment: if the hand-back is refused, the refusal says exactly what to fix; fix it and hand back again.

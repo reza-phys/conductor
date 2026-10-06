@@ -75,3 +75,45 @@
 **State vocabulary.** Each state has one chip style: `running blocked queued pending open failed done decided todo unverified verified refuted`. An unknown state renders as raw text on a neutral chip.
 
 **Optional sections.** `findings`, `results`, `review_queue` and `kill_test` are hidden, and left out of the page's contents list, when empty.
+
+## Schema 2 additions: sessions, tasks per session, project overview
+
+`schema` becomes `2`. Everything above stays (it is the **project overview**: active plan, phases, open items, all agents). New top-level keys:
+
+```jsonc
+{
+  "schema": 2,
+  "mode": "local",                                 // "local" (served or file) | "artifact" (claude.ai: never poll, outputs are not links)
+  "plans": [{"id": "P2", "version": "2", "status": "active", "goal": "…", "file": ".conductor/plans/P2-x.md",
+             "sessions": ["<session id>", "…"]}],  // every plan, newest first; which sessions dispatched work under it
+
+  "sessions": [{                                   // newest first (at most render.max_sessions)
+    "id": "<session id>", "short": "a1b2c3",       // short = first 6 chars
+    "run": "R-20261006-a1b2c3",                    // null if Conductor was initialised mid-session
+    "started": "…", "ended": "…" | null, "live": true,
+    "title": "first human prompt of the session, clipped to 90 chars",
+    "counts": {"tasks": 3, "agents_running": 1, "open_human": 0},
+    "tasks": [{                                    // dispatched in this session, in dispatch order
+      "key": "P2/T3", "id": "T3", "plan": "P2@v2",
+      "title": "…", "state": "running",            // same vocabulary as tasks[]
+      "parent_task": "P2/T1" | null, "review": "required" | "skip",
+      "criteria": "…", "description": "…",
+      "prompt": "the dispatch prompt, clipped" | null,     // null in artifact mode unless artifact.include_prompts
+      "asked_after": {"ts": "…", "text": "nearest earlier human prompt, clipped"} | null,
+      "agents": ["<agent id>", "…"],              // worker(s), their sub-agents and auditors; details in top-level agents[]
+      "claims": [/* same shape as findings[] */],
+      "gates": [{"ts": "…", "agent": "<id>", "attempt": 1, "reasons": ["…"]}],
+      "files_written": ["src/x.py"],
+      "log": [/* same shape as log[], oldest first, ≤ render.task_log_limit */]
+    }],
+    "other": {                                     // work in this session that belongs to no task
+      "agents": ["<agent id>"],                    // e.g. Explore helpers, untracked dispatches
+      "log": [/* oldest first: orchestrator turns, human messages, main-session tool use */]
+    }
+  }]
+}
+```
+
+`agents[]` entries gain `"session": "<session id>"` and `"task_key": "P2/T3"` (`task` keeps the short id for display). `findings[]` entries gain `"key"` (`P2/T3/C1`) and `"session"`.
+
+**Task keys.** Tasks are keyed by plan and id (`P2/T3`) so that `T3` of plan P1 and `T3` of plan P2 never merge. The short id (`T3`, `T3/C1`) is shown wherever it is unambiguous.

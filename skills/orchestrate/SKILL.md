@@ -73,4 +73,8 @@ After the answer: log it in `decisions.md`, then resume the waiting worker with 
 ## 5. Finish
 Summarise for the human: what was achieved (with claim ids), what remains unverified or open, and decisions made. Set the plan's `status: done`.
 
-The human can check progress at any moment with `/conductor:status`, or watch `/conductor:serve`.
+The human can check progress at any moment with `/conductor:status`, or watch `/conductor:serve` (sessions → tasks → agents and logs).
+
+**Status Artifact (opt-in).** If the project has enabled it (`artifact.enabled`), run `/conductor:artifact` after a task finishes and when the human asks: it rebuilds the page and tells you how to publish it to the project's fixed URL with the Artifact tool. If it is not enabled, offer it once; never enable it without the human's yes, because it uploads ledger content.
+
+**Task ids across plans.** Claim and task ids are short (`T3/C1`) while they are unambiguous. When two plans both have a `T3`, the hooks and dashboard qualify them (`P2/T3/C1`); use the qualified form when you cite them.

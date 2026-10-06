@@ -5,7 +5,8 @@
     conductor status [--json]     who is doing what, right now (no tokens, no interruption)
     conductor render              rebuild status.json + status.html once
     conductor serve [--port N]    live dashboard on http://127.0.0.1:N
-    conductor provenance REF      lineage of a claim (T1/C2), task (T1), agent id, or file path
+    conductor provenance REF      lineage of a claim (T1/C2, P2/T1/C2), task (T1, P2/T1), agent id, or file path
+    conductor artifact [enable | url <URL>]   build the status page for a claude.ai Artifact (opt-in)
 """
 from __future__ import annotations
 
@@ -121,6 +122,52 @@ def cmd_provenance(args) -> int:
     return 0
 
 
+ARTIFACT_UPLOADS = ("plans and task criteria, agent names and states, claims with their evidence references, "
+                    "gate results, file paths the agents touched, and one-line log entries (commands too, unless "
+                    "artifact.include_commands is false). Prompts and human messages are left out unless "
+                    "artifact.include_prompts is true.")
+
+
+def cmd_artifact(args) -> int:
+    """Build the page for a claude.ai Artifact and tell Claude how to publish it (opt-in, one URL per project)."""
+    state = _state(args)
+    cfg_path = state / "config.json"
+    saved = state / "state" / "artifact.json"
+    words = args.words or []
+    if words[:1] == ["enable"]:
+        cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        cfg.setdefault("artifact", {})["enabled"] = True
+        cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
+        print("Artifact publishing enabled for this project. Run /conductor:artifact to publish.")
+        return 0
+    if words[:1] == ["url"] and len(words) > 1:
+        saved.parent.mkdir(exist_ok=True)
+        saved.write_text(json.dumps({"url": words[1], "saved": core.utcnow()}) + "\n")
+        print(f"Saved. Later refreshes publish to {words[1]}.")
+        return 0
+    if not core.load_config(state)["artifact"]["enabled"]:
+        print("Artifact publishing is OFF for this project (it is opt-in).\n"
+              f"Publishing uploads to claude.ai (private by default): {ARTIFACT_UPLOADS}\n"
+              "Ask the human whether to enable it. Only if they agree, run: /conductor:artifact enable")
+        return 0
+    st = render.build_artifact(state)
+    from conductor import page
+    html, embedded = page.render(page.TEMPLATE.read_text(encoding="utf-8"), st)
+    errs = page.check(html, embedded)
+    if errs:
+        sys.exit("status page failed its self-check: " + ", ".join(errs))
+    out = state / "status-artifact.html"
+    out.write_text(html, encoding="utf-8")
+    url = (json.loads(saved.read_text()).get("url") if saved.exists() else None)
+    print(f"Built {out} ({len(html) // 1024} KB, {len(st['sessions'])} sessions).")
+    if url:
+        print(f"Publish it with the Artifact tool: file_path={out}, url={url} (updates the existing page in place).")
+    else:
+        print(f"Publish it with the Artifact tool: file_path={out} (first publish; icon: chart). Then save the URL it "
+              "returns with: /conductor:artifact url <URL>")
+    return 0
+
+
 def cmd_render(args) -> int:
     state = _state(args)
     if args.loop:
@@ -148,6 +195,8 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_status)
     p = sub.add_parser("provenance", help="lineage of a claim (T1/C2), task (T1), agent id, or file path")
     p.add_argument("ref"); p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_provenance)
+    p = sub.add_parser("artifact", help="build the claude.ai Artifact page (opt-in): artifact [enable | url <URL>]")
+    p.add_argument("words", nargs="*"); p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_artifact)
     p = sub.add_parser("render"); p.add_argument("--loop", action="store_true"); p.add_argument("--state"); p.set_defaults(fn=cmd_render)
     p = sub.add_parser("serve"); p.add_argument("--state", help=argparse.SUPPRESS); p.add_argument("--port", type=int, default=8765); p.set_defaults(fn=cmd_serve)
     args = ap.parse_args(argv)

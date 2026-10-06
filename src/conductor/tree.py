@@ -10,6 +10,14 @@ from typing import Any
 MAIN = "main"
 
 
+def task_key(plan: str | None, task: str | None) -> str | None:
+    """Plan-qualified task key: ("P2@v1", "T3") -> "P2/T3". Without a plan the bare id is the key."""
+    if not task:
+        return None
+    pid = (plan or "").split("@")[0].strip()
+    return f"{pid}/{task}" if pid else task
+
+
 def _ts(s: str | None) -> _dt.datetime | None:
     if not s:
         return None
@@ -37,6 +45,8 @@ class Tree:
         # provenance: what each agent actually touched, and the claims ledger per task
         self.obs: dict[str, dict[str, Any]] = {}
         self.ledger: dict[str, dict[str, Any]] = {}
+        # sessions: id -> first/last event, run id, end, title (first human prompt)
+        self.sessions: dict[str, dict[str, Any]] = {}
         self.apply(events or [])
 
     def apply(self, events: list[dict]) -> None:
@@ -44,6 +54,11 @@ class Tree:
         for e in events:
             if self.keep_events:
                 self.events.append(e)
+            sid = e.get("session")
+            if sid:
+                s = self.sessions.setdefault(sid, {"id": sid, "first": e.get("ts"), "last": e.get("ts"),
+                                                   "run": None, "ended": None, "title": None})
+                s["last"] = e.get("ts")
             getattr(self, "_on_" + e.get("event", ""), self._on_tool)(e)
 
     # --- helpers -----------------------------------------------------------------
@@ -78,9 +93,13 @@ class Tree:
                 return tid
         return None
 
+    def unbound_count(self, agent_type: str, session: str | None = None) -> int:
+        return sum(1 for tid, d in self.dispatches.items() if tid not in self.bound and not d.get("denied")
+                   and d.get("subagent_type") == agent_type and (session is None or d.get("session") == session))
+
     def observed(self, agent_ids: set[str]) -> dict[str, Any]:
         """Union of observations (files read/written, commands, urls) of the given agents."""
-        out: dict[str, Any] = {"files": set(), "cmds": [], "urls": set(), "search_paths": set(), "mcp": []}
+        out: dict[str, Any] = {"files": set(), "cmds": [], "urls": set(), "search_paths": set(), "mcp": [], "files_ref": set()}
         for a in agent_ids:
             o = self.obs.get(a)
             if o:
@@ -89,6 +108,7 @@ class Tree:
                 out["urls"] |= o["urls"]
                 out["search_paths"] |= o["search_paths"]
                 out["mcp"] += o.get("mcp", [])
+                out["files_ref"] |= o.get("files_ref", set())
         return out
 
     def work_subtree(self, agent_id: str) -> set[str]:
@@ -136,26 +156,37 @@ class Tree:
         d = self.dispatches[tool_use_id]
         a = self._agent(agent_id)
         self.bound.add(tool_use_id)
+        plan = d.get("plan")
+        review_key = task_key(plan, d.get("review_for")) if d.get("review_for") else None
         a.update({
             "tool_use_id": tool_use_id, "parent": d.get("parent") or MAIN, "depth": d.get("depth"),
-            "task": d.get("task") or d.get("review_for") and f"review:{d.get('review_for')}",
-            "plan": d.get("plan"), "description": d.get("description"), "review_for": d.get("review_for"),
+            "task": task_key(plan, d.get("task")) or (f"review:{review_key}" if review_key else None),
+            "task_id": d.get("task") or (f"review:{d.get('review_for')}" if d.get("review_for") else None),
+            "plan": plan, "description": d.get("description"), "review_for": review_key,
             "type": a.get("type") or d.get("subagent_type"), "exempt": d.get("exempt", False),
-            "review": d.get("review"),
+            "review": d.get("review"), "session": a.get("session") or d.get("session"),
         })
 
     # --- event handlers ------------------------------------------------------------
     def _on_run_start(self, e: dict) -> None:
         self.run = {"session": e.get("session"), "started": e["ts"], "run": e.get("run")}
         self.live = True
+        if e.get("session") in self.sessions:
+            self.sessions[e["session"]].update(run=e.get("run"), ended=None)
 
     def _on_run_end(self, e: dict) -> None:
-        self.live = False
-        self.run["ended"] = e["ts"]
+        if e.get("session") in (None, self.run.get("session")):
+            self.live = False
+            self.run["ended"] = e["ts"]
+        if e.get("session") in self.sessions:
+            self.sessions[e["session"]]["ended"] = e["ts"]
 
     def _on_human_message(self, e: dict) -> None:
         if not e.get("data", {}).get("notification"):
             self.human_messages.append(e)
+            s = self.sessions.get(e.get("session") or "")
+            if s is not None and not s["title"]:
+                s["title"] = (e.get("data") or {}).get("text")
 
     def _on_dispatch(self, e: dict) -> None:
         d = dict(e.get("data", {}))
@@ -168,8 +199,10 @@ class Tree:
 
     def _on_agent_start(self, e: dict) -> None:
         a = self._agent(e["agent"])
-        a.update(type=e.get("agent_type"), started=e["ts"], state="running", last_ts=e["ts"])
-        self._bind(e["agent"], e.get("data", {}).get("tool_use_id"))
+        a.update(type=e.get("agent_type"), started=e["ts"], state="running", last_ts=e["ts"],
+                 session=a.get("session") or e.get("session"))
+        if not a.get("tool_use_id"):  # a link (PostToolUse) binding is exact; never override it with a FIFO guess
+            self._bind(e["agent"], e.get("data", {}).get("tool_use_id"))
 
     def _on_link(self, e: dict) -> None:
         child = e["data"].get("child")
@@ -179,6 +212,18 @@ class Tree:
             self._bind(child, e["data"].get("tool_use_id"))
             if e["data"].get("model"):
                 self.agents[child]["model"] = e["data"]["model"]
+            a = self.agents[child]
+            if e["data"].get("status") == "completed" and a["state"] == "running" and a.get("started"):
+                # The parent already has the result but no stop was recorded for the child: close it, honestly labelled.
+                a.update(state="unverified", ended=e["ts"], gate_result=a.get("gate_result") or "no stop recorded",
+                         last_action="finished (no stop recorded)")
+
+    def _on_handback(self, e: dict) -> None:
+        a = self._agent(e["agent"])
+        a["handed_back"] = e["ts"]
+        a["handback"] = (e.get("data") or {}).get("message")
+        a["last_action"] = "handed back"
+        a["last_ts"] = e["ts"]
 
     def _on_gate_block(self, e: dict) -> None:
         a = self._agent(e["agent"])
@@ -186,12 +231,22 @@ class Tree:
         a["gate_result"] = "blocked"
         a["last_action"] = "gate: blocked"
         a["last_ts"] = e["ts"]
+        if a.get("handed_back") and e["data"].get("at") != "handback":
+            # Logs from plugin 0.1.0: a stop-time block after the agent had already handed back never reached it.
+            a.update(state="unverified", ended=e["ts"], gate_result="escalated",
+                     last_action="finished (block after hand-back was not delivered)")
+
+    def _internal_helper(self, e: dict) -> bool:
+        """Claude Code-internal helpers (e.g. prompt suggestions) have an empty agent type and were never dispatched."""
+        return e.get("agent_type") == "" and e.get("agent") not in self.agents
 
     def _on_agent_stop(self, e: dict) -> None:
+        if self._internal_helper(e):
+            return
         a = self._agent(e["agent"])
         d = e.get("data", {})
         a.update(ended=e["ts"], last_ts=e["ts"], output_path=d.get("output_path"), report=d.get("report"))
-        if a.get("task") and not a.get("review_for") and d.get("claims") is not None:
+        if a.get("task") and not a.get("review_for") and d.get("claims") is not None:  # a["task"] is the plan-qualified key
             led = self.task_ledger(a["task"])
             led["final"] = {c["id"]: c for c in d["claims"]}
             led["final_by"] = e["agent"]
@@ -226,15 +281,18 @@ class Tree:
 
     def _on_tool(self, e: dict) -> None:
         agent = e.get("agent")
-        if not agent or agent == MAIN:
+        if not agent or agent == MAIN or self._internal_helper(e):
             return
         a = self._agent(agent)
+        if e.get("event") == "tool" and (e.get("data") or {}).get("tool") == "SubagentHandback":
+            a["handed_back"] = e["ts"]  # 0.1.0 logged hand-backs as plain tool events
         o = self.obs.setdefault(agent, {"files": set(), "cmds": [], "urls": set(), "search_paths": set(), "mcp": []})
         data = e.get("data") or {}
         if e.get("event") in ("observe_file", "produce_file") and data.get("path"):
             o["files"].add(data["path"])
         elif e.get("event") == "exec" and data.get("command"):
             o["cmds"].append(data["command"])
+            o.setdefault("files_ref", set()).update(data.get("files") or [])  # project files the command named
         elif e.get("event") == "observe_source":
             if data.get("url"):
                 o["urls"].add(data["url"].rstrip("/"))
@@ -261,7 +319,8 @@ class Tree:
             dur = int(((end or now) - start).total_seconds()) if start else None
             out.append({
                 "id": a["id"], "parent": a["parent"] or MAIN, "depth": a["depth"] or 1, "type": a["type"],
-                "task": a["task"], "description": a["description"], "state": a["state"],
+                "task": a.get("task_id") or a["task"], "task_key": a["task"], "plan": a.get("plan"),
+                "session": a.get("session"), "description": a["description"], "state": a["state"],
                 "started": a["started"], "ended": a["ended"], "duration_s": dur,
                 "last_action": a["last_action"], "last_ts": a["last_ts"],
                 "gate": {"blocks": len(a["gate_reasons"]), "result": a["gate_result"] or ("exempt" if a.get("exempt") else None),

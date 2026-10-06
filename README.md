@@ -18,7 +18,7 @@ What makes it different from a prompt that says "please plan, delegate and doubl
 | cite a file it never read or a command it never ran | blocks it: *"C1 cites cmd:pytest but you never ran it"* |
 | keep a claim the auditor refuted, or reword one after review | blocks it until it's fixed and re-reviewed, or withdrawn |
 | (as auditor) mark claims verified without checking anything | blocks the verdict |
-| (as orchestrator) edit project files itself | refuses: the orchestrator plans, workers make the changes |
+| (as orchestrator) edit project files itself, with Write/Edit or obvious Bash writes (`>`, `tee`, `sed -i`, `cp`, `rm`…) | refuses: the orchestrator plans, workers make the changes |
 
 After 3 failed attempts the agent is let through, but its output is marked **unverified** and lands in your review queue. Nothing unverified reaches you unlabelled.
 
@@ -28,7 +28,8 @@ After 3 failed attempts the agent is let through, but its output is marked **unv
 - **Nested agents.** Workers delegate to sub-workers. Every agent gets a parent, a task and a depth, recovered from hook payloads rather than self-reported.
 - **Audit gate.** A separate auditor agent with a fresh context re-checks each claim against its source before the worker may report upward.
 - **Provenance built in.** One append-only event log covers every dispatch, file read (with content hash), command, write, claim, verdict and human answer. `conductor provenance T1/C2` prints the full lineage. Agent-made commits get `Conductor-Run/Task/Agent/Plan` git trailers.
-- **Live dashboard.** It's regenerated on every event, so it's live by construction rather than when an agent remembers to update it. It shows the current state, plan and tasks, the agent tree, claims, items waiting on you, and a log.
+- **Live dashboard.** It's regenerated on every event, so it's live by construction rather than when an agent remembers to update it. A sidebar lists every session in the project and the tasks given in each; a task view shows the task, its agent tree, claims and verdicts, gate events and its log.
+- **Status as an Artifact (opt-in).** `/conductor:artifact` publishes the same page to claude.ai at one fixed URL per project, so you can check on a run from anywhere. Off by default, because it uploads ledger content; prompts and human messages stay out unless you include them.
 - **Status at any time.** `/conductor:status` (or `conductor status` in any terminal) shows who is doing what right now. It costs no tokens and interrupts nothing.
 - **Zero dependencies.** Stdlib Python 3.9+, about 50 ms per hook, flat as the log grows (the hook keeps an incremental cache of the replayed state).
 
@@ -82,6 +83,7 @@ While it runs:
 ```
 /conductor:status               # agent tree, what each agent is doing now, items needing you
 /conductor:provenance T1/C2     # lineage of a claim; also accepts a task id, agent id or file path
+/conductor:artifact             # publish the status page to claude.ai (asks before enabling)
 ```
 
 ```
@@ -134,6 +136,10 @@ Design details: [docs/DESIGN.md](docs/DESIGN.md) · Provenance model: [docs/prov
 | `gate.max_blocks` | `3` | then let the agent through, marked unverified |
 | `gate.allow_review_skip` | `true` | honour `review="skip"` on a task envelope for low-stakes work; its claims show as *asserted*, not verified |
 | `provenance.commit_trailers` | `true` | stamp agent commits |
+| `ledger.store_prompts` | `true` | keep each dispatch prompt (clipped to `ledger.prompt_clip`, 4000) in the local log, for the task view |
+| `render.max_sessions` | `30` | sessions shown in the dashboard sidebar |
+| `artifact.enabled` | `false` | allow `/conductor:artifact` to publish the status page to claude.ai |
+| `artifact.include_prompts` / `include_commands` / `redact_paths` | `false` / `true` / `false` | what the published page may contain |
 
 `.conductor/standards.md` holds your global quality bar, which every auditor reads.
 

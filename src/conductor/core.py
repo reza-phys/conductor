@@ -43,7 +43,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_blocks": 3,  # then allow, mark task `unverified`, open a review item
         "allow_review_skip": True,  # honour review="skip" on a task envelope (claims and evidence are still checked)
     },
-    "render": {"enabled": True, "log_limit": 300, "log_visible": 8},
+    "render": {"enabled": True, "log_limit": 300, "log_visible": 8, "max_sessions": 30, "task_log_limit": 300},
+    "ledger": {"store_prompts": True, "prompt_clip": 4000},  # dispatch prompt text in events.jsonl (local only)
+    # Opt-in: publish the dashboard as a claude.ai Artifact (one fixed URL per project). Uploads ledger content.
+    "artifact": {"enabled": False, "refresh": "task_done", "include_prompts": False, "include_commands": True,
+                 "redact_paths": False},
 }
 
 

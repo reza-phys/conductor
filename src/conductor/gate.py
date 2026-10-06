@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from conductor import protocol
-from conductor.tree import Tree
+from conductor.tree import Tree, task_key
 
 CHECKABLE = ("file", "cmd", "url", "mcp", "claim", "hitl")
 
@@ -23,11 +23,33 @@ def _norm_path(p: str) -> str:
     return p[2:] if p.startswith("./") else p
 
 
-def evidence_observed(tree: Tree, ev: dict, seen: dict[str, Any]) -> bool:
+def _norm_text(s: str) -> str:
+    """Claim wording, ignoring whitespace, markdown emphasis/backticks and a trailing full stop."""
+    s = re.sub(r"[`*_]", "", s or "")
+    return re.sub(r"\s+", " ", s).strip().rstrip(".").strip().lower()
+
+
+def _match_file(ref: str, files) -> bool:
+    return any(f == ref or f.endswith("/" + ref) or ref.endswith("/" + f) for f in files if f)
+
+
+def resolve_claim(tree: Tree, ref: str, plan: str | None = None) -> tuple[str, str] | None:
+    """'T2/C1', 'P2/T2/C1' or 'T2.1/C1' -> (ledger task key, claim id), qualifying with `plan` when needed."""
+    task, _, cid = ref.rpartition("/")
+    if not task or not cid:
+        return None
+    for key in (task, task_key(plan, task)):
+        if key and key in tree.ledger:
+            return key, cid
+    hits = [k for k in tree.ledger if k.endswith("/" + task)]
+    return (hits[-1], cid) if hits else None
+
+
+def evidence_observed(tree: Tree, ev: dict, seen: dict[str, Any], plan: str | None = None) -> bool:
     kind, ref = ev["kind"], ev.get("ref", "")
     if kind == "file":
         ref = _norm_path(ref)
-        return any(f == ref or f.endswith("/" + ref) or ref.endswith("/" + f) for f in seen["files"] if f) \
+        return _match_file(ref, seen["files"]) or _match_file(ref, seen.get("files_ref", ())) \
             or ref in seen["search_paths"]
     if kind == "cmd":
         want = _norm_cmd(ref)
@@ -41,9 +63,8 @@ def evidence_observed(tree: Tree, ev: dict, seen: dict[str, Any]) -> bool:
         want = want[5:] if want.startswith("mcp__") else want
         return bool(want) and any(t[5:] == want or t[5:].endswith("__" + want) for t in seen.get("mcp", []))
     if kind == "claim":
-        task, _, cid = ref.partition("/")
-        led = tree.ledger.get(task, {})
-        vs = led.get("verdicts", {}).get(cid, [])
+        hit = resolve_claim(tree, ref, plan)
+        vs = tree.ledger[hit[0]].get("verdicts", {}).get(hit[1], []) if hit else []
         return bool(vs) and vs[-1]["verdict"] == "verified"
     return kind == "hitl"  # human answers are logged by the orchestrator, not by the agent
 
@@ -51,6 +72,7 @@ def evidence_observed(tree: Tree, ev: dict, seen: dict[str, Any]) -> bool:
 def check_evidence(tree: Tree, agent_id: str, claims: list[dict]) -> list[str]:
     """Anti-fabrication: cited evidence must appear in this agent's (or its workers') own observations."""
     seen = tree.observed(tree.work_subtree(agent_id))
+    plan = tree.agents.get(agent_id, {}).get("plan")
     problems = []
     for c in claims:
         checkable = [e for e in c["evidence"] if e["kind"] in CHECKABLE]
@@ -61,7 +83,7 @@ def check_evidence(tree: Tree, agent_id: str, claims: list[dict]) -> list[str]:
             if e["kind"] == "claim" and e["ref"].startswith("review:"):
                 problems.append(f"{c['id']} cites a review verdict as evidence; cite the files, commands or sources themselves.")
                 continue
-            if not evidence_observed(tree, e, seen):
+            if not evidence_observed(tree, e, seen, plan):
                 if e["kind"] == "claim":
                     problems.append(f"{c['id']} cites claim:{e['ref']}, which is not a verified claim.")
                 else:
@@ -82,7 +104,7 @@ def claim_states(tree: Tree, task: str, worker: str, claims: list[dict]) -> tupl
             states[c["id"]] = "unreviewed"
             problems.append(f"{c['id']} has not been reviewed by an auditor.")
             continue
-        if sub.get("text", "").strip() != c["text"].strip():
+        if _norm_text(sub.get("text", "")) != _norm_text(c["text"]):
             states[c["id"]] = "unreviewed"
             problems.append(f"{c['id']} changed after its review; send the new wording to an auditor.")
             continue
@@ -95,8 +117,10 @@ def claim_states(tree: Tree, task: str, worker: str, claims: list[dict]) -> tupl
 
 
 def check_auditor(tree: Tree, agent_id: str, task: str, verdicts: list[dict]) -> list[str]:
+    """The auditor must give a verdict for every claim *in its own review* (a re-audit may cover only some)."""
     led = tree.ledger.get(task, {"submitted": {}})
-    asked = set(led["submitted"])
+    mine = tree.agents.get(agent_id, {}).get("tool_use_id")
+    asked = {cid for cid, s in led["submitted"].items() if mine and s.get("review") == mine} or set(led["submitted"])
     got = {v["id"] for v in verdicts}
     problems = []
     missing = sorted(asked - got)

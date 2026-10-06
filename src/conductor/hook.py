@@ -13,15 +13,18 @@ import os
 import re
 import shlex
 import sys
+import time
 import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from conductor import cache, core, gate, protocol, render  # noqa: E402
-from conductor.tree import MAIN, Tree  # noqa: E402
+from conductor.tree import MAIN, Tree, task_key  # noqa: E402
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+HANDBACK = "SubagentHandback"  # desktop-app tool a sub-agent may end its run with; its `message` carries the report
+NOTIFICATION_PREFIXES = ("<task-notification>", "<agent-message")
 
 
 def _rel_claims(c: "Ctx", claims: list[dict]) -> list[dict]:
@@ -80,7 +83,14 @@ def on_session_start(c: Ctx):
     c.emit("run_start", {"source": c.p.get("source"), "model": c.p.get("model")},
            run=f"R-{core.utcnow()[:10].replace('-', '')}-{sid[:6]}")
     if c.cfg["orchestrator"]["inject_protocol"]:
-        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": protocol.ORCHESTRATOR_BRIEF}}
+        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": _brief(c)}}
+
+
+def _brief(c: Ctx) -> str:
+    brief = protocol.ORCHESTRATOR_BRIEF
+    if c.cfg["artifact"]["enabled"]:
+        brief += protocol.ARTIFACT_BRIEF
+    return brief
 
 
 def on_session_end(c: Ctx):
@@ -89,9 +99,16 @@ def on_session_end(c: Ctx):
 
 def on_user_prompt_submit(c: Ctx):
     text = c.p.get("prompt") or ""
-    note = text.lstrip().startswith("<task-notification>")
+    note = text.lstrip().startswith(NOTIFICATION_PREFIXES)  # task notifications and sub-agent hand-backs, not the human
     c.emit("human_message", {"text": core.clip(text, 4000), "notification": note},
            summary=None if note else "human: " + text)
+    sid = c.p.get("session_id")
+    if sid and not (c.tree.sessions.get(sid) or {}).get("run"):
+        # SessionStart ran before .conductor/ existed (e.g. /conductor:init mid-session): start the run and brief now
+        c.emit("run_start", {"source": "late_init"}, run=f"R-{core.utcnow()[:10].replace('-', '')}-{sid[:6]}")
+        if c.cfg["orchestrator"]["inject_protocol"]:
+            return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": _brief(c)}}
+    return None
 
 
 def on_stop(c: Ctx):
@@ -108,8 +125,10 @@ def on_pre_tool_use(c: Ctx):
     ti = c.p.get("tool_input") or {}
     if tool == "Agent":
         return _pre_agent(c, ti)
+    if tool == HANDBACK:
+        return _pre_handback(c, ti)
     if tool == "Bash":
-        return _pre_bash(c, ti)
+        return _guard_bash(c, ti) or _pre_bash(c, ti)
     if tool in WRITE_TOOLS and c.p.get("agent_type") in c.cfg["dispatch"]["read_only_types"]:
         c.emit("write_denied", {"path": c.rel(ti.get("file_path") or ti.get("notebook_path")), "tool": tool},
                summary=f"read-only agent edit refused")
@@ -139,11 +158,120 @@ def _pre_bash(c: Ctx, ti: dict):
         return None
     a = c.tree.agents.get(c.agent, {})
     trailers = {"Conductor-Run": c.tree.run.get("run"), "Conductor-Agent": c.agent,
-                "Conductor-Task": a.get("task"), "Conductor-Plan": a.get("plan")}
+                "Conductor-Task": a.get("task_id") or a.get("task"), "Conductor-Plan": a.get("plan")}
     flags = " ".join(f"--trailer {shlex.quote(f'{k}: {v}')}" for k, v in trailers.items() if v)
     new = _GIT_COMMIT.sub(lambda m: f"{m.group(0)} {flags}", cmd, count=1)
     c.emit("commit_stamped", {"trailers": {k: v for k, v in trailers.items() if v}})
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**ti, "command": new}}}
+
+
+_REDIRECT = re.compile(r"""(?<![<0-9&])(?:[0-9]?>>?|&>>?)\s*(?!&)("[^"]+"|'[^']+'|[^\s;|&<>()]+)""")
+_WRITE_CMD = re.compile(r"""(?:^|[;&|(]\s*|\s)(?:sudo\s+)?(tee(?:\s+-a)?|cp|mv|rm|rmdir|touch|mkdir|ln|install|truncate|dd)\s+([^;&|]*)""")
+_INPLACE = re.compile(r"""(?:^|[;&|(]\s*|\s)(?:sed|perl|gsed)\s+[^;&|]*?-[a-zA-Z]*i[^;&|]*""")
+_SAFE_TARGETS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/tmp/", "/private/tmp/", "/var/folders/")
+
+
+def _bash_write_targets(cmd: str) -> list[str]:
+    """Paths an orchestrator Bash command visibly writes (redirects, tee, cp/mv/rm/touch/…; sed -i => '?')."""
+    targets = [m.strip("'\"") for m in _REDIRECT.findall(cmd)]
+    for verb, rest in _WRITE_CMD.findall(cmd):
+        words = [w for w in shlex.split(rest, posix=True) if not w.startswith("-")] if rest.strip() else []
+        if verb.startswith("tee") or verb in ("touch", "mkdir", "rm", "rmdir", "truncate"):
+            targets += words
+        elif words:
+            targets.append(words[-1])  # cp/mv/ln/install/dd: the destination
+    if _INPLACE.search(cmd):
+        targets.append("?")  # in-place edit of files we cannot reliably name
+    return targets
+
+
+def _guard_bash(c: Ctx, ti: dict):
+    """The orchestrator's write scope also covers obvious Bash writes (best effort, not a sandbox)."""
+    if c.agent != MAIN or c.cfg["orchestrator"]["allow_project_edits"]:
+        return None
+    cmd = ti.get("command") or ""
+    try:
+        targets = _bash_write_targets(cmd)
+    except ValueError:  # unbalanced quotes: let it through rather than guess
+        return None
+    state = str(c.state.resolve())
+    bad = []
+    for t in targets:
+        if t == "?":
+            bad.append("in-place edit (sed/perl -i)")
+            continue
+        if t.startswith(_SAFE_TARGETS):
+            continue
+        full = Path(t) if os.path.isabs(t) else (c.root / t)
+        try:
+            resolved = str(full.resolve())
+        except OSError:
+            resolved = str(full)
+        if not resolved.startswith(state):
+            bad.append(c.rel(resolved) or t)
+    if not bad:
+        return None
+    c.emit("write_denied", {"tool": "Bash", "targets": bad, "command": core.clip(cmd, 300)},
+           summary=f"orchestrator Bash write refused: {', '.join(bad)[:80]}")
+    return _deny(f"Conductor: the orchestrator does not change project files, including through Bash "
+                 f"({', '.join(bad)}). Dispatch a worker, or write only under {core.STATE_DIR}/.")
+
+
+def _gate_eval(c: Ctx, a: dict, msg: str, background_tasks=None) -> dict:
+    """Run the audit gate on a report. Returns reasons (empty = pass) plus the parsed pieces."""
+    gcfg = c.cfg["gate"]
+    report = protocol.parse_report(msg)
+    reasons: list[str] = []
+    desc = c.tree.descendants(c.agent)
+    running = {t.get("id") for t in (background_tasks or [])
+               if t.get("status") == "running" and t.get("id") in desc}
+    running |= {d for d in desc if c.tree.agents[d]["state"] == "running"}
+    if running:
+        reasons.append(f"{len(running)} of your sub-agents are still running ({', '.join(sorted(running))}). "
+                       "Wait for their results before reporting.")
+    review_for = a.get("review_for")
+    status = (report or {}).get("status")
+    claims = _rel_claims(c, protocol.parse_claims((report or {}).get("claims")))
+    verdicts = protocol.parse_verdicts((report or {}).get("verdicts")) if review_for else []
+    states: dict = {}
+    if gcfg["require_report"] and (not report or status not in protocol.REPORT_STATUSES):
+        reasons.append("Missing or malformed report block. " + protocol.REPORT_HELP)
+    elif review_for:
+        reasons += gate.check_auditor(c.tree, c.agent, review_for, verdicts)
+    elif report:
+        mine = a.get("task_id") or a.get("task")
+        if report.get("task") and report["task"] not in (mine, a.get("task")):
+            reasons.append(f'Your report says task="{report["task"]}" but you were dispatched for task "{mine}".')
+        if status == "done":
+            if gcfg["require_claims"] and not claims:
+                reasons.append("A done report needs at least one claim. " + protocol.CLAIMS_HELP)
+            if gcfg["check_evidence"]:
+                reasons += gate.check_evidence(c.tree, c.agent, claims)
+            if gcfg["require_verdicts"] and claims and a.get("review") != "skip":
+                states, problems = gate.claim_states(c.tree, a["task"], c.agent, claims)
+                if problems:
+                    reasons += problems + ([protocol.REVIEW_HELP] if any("not been reviewed" in p or "changed" in p
+                                                                          for p in problems) else [])
+    return {"reasons": reasons, "report": report, "claims": claims, "verdicts": verdicts, "states": states}
+
+
+def _gated(c: Ctx, a: dict) -> bool:
+    return bool(c.cfg["gate"]["enabled"] and a.get("task") and not a.get("exempt"))
+
+
+def _pre_handback(c: Ctx, ti: dict):
+    """Gate at hand-back time: the agent is still running, so a refusal reaches it and it can fix the report."""
+    a = c.tree.agents.get(c.agent, {})
+    if c.agent == MAIN or not _gated(c, a):
+        return None
+    ev = _gate_eval(c, a, ti.get("message") or "")
+    blocks = c.tree.gate_blocks(c.agent)
+    if not ev["reasons"] or blocks >= c.cfg["gate"]["max_blocks"]:
+        return None  # pass, or out of attempts: SubagentStop records the outcome (escalated if still failing)
+    c.emit("gate_block", {"reasons": ev["reasons"], "attempt": blocks + 1, "at": "handback"},
+           summary=f"gate blocked hand-back (attempt {blocks + 1})")
+    return _deny(f"Conductor gate (attempt {blocks + 1}/{c.cfg['gate']['max_blocks']}): fix this, then hand back again:\n- "
+                 + "\n- ".join(ev["reasons"]))
 
 
 def _pre_agent(c: Ctx, ti: dict):
@@ -160,12 +288,17 @@ def _pre_agent(c: Ctx, ti: dict):
             "description": ti.get("description"), "depth": depth, "exempt": exempt and not task,
             "background": ti.get("run_in_background"), "prompt_sha": core.sha256_text(prompt)}
     skip_review = bool(task) and (task.get("review") or "").lower() in protocol.REVIEW_SKIP
+    caller_plan = c.tree.agents.get(c.agent, {}).get("plan")
     if task:
-        data.update(task=task.get("id"), plan=task.get("plan"), parent_task=task.get("parent") or parent_task,
+        plan = task.get("plan") or caller_plan
+        parent = task.get("parent")
+        data.update(task=task.get("id"), plan=plan, parent_task=task_key(plan, parent) if parent else parent_task,
                     criteria=core.clip(task.get("criteria"), 2000), review="skip" if skip_review else "required")
+    if c.cfg["ledger"]["store_prompts"]:
+        data["prompt"] = core.clip(prompt, c.cfg["ledger"]["prompt_clip"])
     review_claims = _rel_claims(c, protocol.parse_claims(review.get("claims"))) if review else []
     if review:
-        data.update(review_for=review.get("for"), parent_task=parent_task)
+        data.update(review_for=review.get("for"), parent_task=parent_task, plan=caller_plan)
 
     reason = None
     if dcfg["enforce_envelope"] and not (task or review or exempt):
@@ -183,7 +316,8 @@ def _pre_agent(c: Ctx, ti: dict):
         return _deny(reason)
 
     if review_claims:
-        c.emit("claims_submitted", {"task": review.get("for"), "claims": review_claims, "tool_use_id": c.p.get("tool_use_id")},
+        c.emit("claims_submitted", {"task": task_key(caller_plan, review.get("for")), "claims": review_claims,
+                                    "tool_use_id": c.p.get("tool_use_id")},
                summary=f"submitted {len(review_claims)} claims of {review.get('for')} for review")
     label = task.get("id") if task else (f"review {review.get('for')}" if review else "untracked")
     c.emit("dispatch", data, summary=f"dispatch → {stype} [{label}] {ti.get('description') or ''}")
@@ -213,7 +347,7 @@ def _tool_summary(c: Ctx, tool: str, ti: dict) -> tuple[str, dict, str]:
         return "observe_source", {"query": ti.get("query")}, f"WebSearch {core.clip(ti.get('query'), 80)}"
     if tool == "Bash":
         cmd = ti.get("command") or ""
-        return "exec", {"command": core.clip(cmd, 1000), "description": ti.get("description")}, \
+        return "exec", {"command": core.clip(cmd, 1000), "description": ti.get("description"), "files": _named_files(c, cmd)}, \
             f"Bash: {core.clip(ti.get('description') or cmd, 100)}"
     if tool.startswith("mcp__"):
         inp = json.dumps(ti, sort_keys=True, ensure_ascii=False)
@@ -228,6 +362,31 @@ def _tool_summary(c: Ctx, tool: str, ti: dict) -> tuple[str, dict, str]:
     return "tool", {"tool": tool}, tool
 
 
+def _named_files(c: Ctx, cmd: str, limit: int = 50) -> list[str]:
+    """Existing project files a shell command names (cat, sed -n, head, a script…): evidence that it looked at them.
+    Weaker than a Read, which records the file's hash; documented as such."""
+    try:
+        words = shlex.split(cmd, posix=True)
+    except ValueError:
+        words = cmd.split()
+    cwd = Path(c.p.get("cwd") or c.root)
+    out = []
+    for w in words:
+        if w.startswith("-") or len(w) > 300 or any(ch in w for ch in "*?$`|;&<>"):
+            continue
+        p = Path(w) if os.path.isabs(w) else cwd / w
+        try:
+            if p.is_file():
+                r = c.rel(str(p))
+                if r and not os.path.isabs(r) and r not in out:
+                    out.append(r)
+        except OSError:
+            continue
+        if len(out) >= limit:
+            break
+    return out
+
+
 def on_post_tool_use(c: Ctx):
     tool = c.p.get("tool_name") or "?"
     ti = c.p.get("tool_input") or {}
@@ -237,6 +396,10 @@ def on_post_tool_use(c: Ctx):
         c.emit("link", {"tool_use_id": c.p.get("tool_use_id"), "child": tr.get("agentId"),
                         "status": tr.get("status"), "child_type": tr.get("agentType") or ti.get("subagent_type"),
                         "model": tr.get("resolvedModel")})
+        return None
+    if tool == HANDBACK:
+        msg = ti.get("message") or ""
+        c.emit("handback", {"message": core.clip(msg, 20000), "sha256": core.sha256_text(msg)}, summary="handed back")
         return None
     if tool == "AskUserQuestion":
         c.emit("hitl", {"questions": ti.get("questions"), "answers": tr if isinstance(tr, (dict, list, str)) else None},
@@ -268,14 +431,50 @@ def _meta_tool_use_id(c: Ctx) -> str | None:
 
 
 def on_subagent_start(c: Ctx):
-    tuid = _meta_tool_use_id(c) or c.tree.unbound_dispatch(c.p.get("agent_type"), c.p.get("session_id"))
+    tuid = _meta_tool_use_id(c) or c.tree.agents.get(c.agent, {}).get("tool_use_id")
+    if not tuid and c.tree.unbound_count(c.p.get("agent_type"), c.p.get("session_id")) > 1:
+        # Several same-type dispatches are pending: a FIFO guess could pick the wrong task. meta.json (with the exact
+        # spawning tool-use id) appears ~60-70 ms after SubagentStart, so wait for it briefly.
+        for _ in range(8):
+            time.sleep(0.05)
+            tuid = _meta_tool_use_id(c)
+            if tuid:
+                break
+    tuid = tuid or c.tree.unbound_dispatch(c.p.get("agent_type"), c.p.get("session_id"))
     c.emit("agent_start", {"tool_use_id": tuid}, summary=f"started {c.p.get('agent_type')}")
+
+
+def _handback_message(c: Ctx) -> str | None:
+    """The report an agent handed back: from the logged hand-back, else from its transcript (last SubagentHandback call)."""
+    a = c.tree.agents.get(c.agent, {})
+    if a.get("handback"):
+        return a["handback"]
+    paths = [Path(p) for p in [c.p.get("agent_transcript_path")] if p]
+    if c.p.get("transcript_path"):
+        paths.append(Path(c.p["transcript_path"]).with_suffix("") / "subagents" / f"agent-{c.agent}.jsonl")
+    for p in paths:
+        try:
+            lines = p.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            content = (r.get("message") or {}).get("content") if r.get("type") == "assistant" else None
+            for b in content if isinstance(content, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == HANDBACK:
+                    return (b.get("input") or {}).get("message")
+    return None
 
 
 def on_subagent_stop(c: Ctx):
     gcfg = c.cfg["gate"]
     a = c.tree.agents.get(c.agent, {})
     msg = c.p.get("last_assistant_message") or ""
+    handback = None if protocol.parse_report(msg) else _handback_message(c)
+    msg = handback or msg
     report = protocol.parse_report(msg)
 
     out_dir = c.state / "outputs"
@@ -286,46 +485,21 @@ def on_subagent_stop(c: Ctx):
                  "report": {"status": report.get("status"), "summary": core.clip(report.get("summary") or report.get("body"), 600),
                             "files": report.get("files"), "needs": report.get("needs")} if report else None}
 
-    tracked = a.get("task") and not a.get("exempt")
-    if not gcfg["enabled"] or not tracked:
+    if handback:
+        stop_data["ended_by"] = "handback"
+    if not _gated(c, a):
         c.emit("agent_stop", {**stop_data, "gate": "exempt"}, summary="finished (ungated)")
         return None
 
-    reasons = []
-    desc = c.tree.descendants(c.agent)
-    running = {t.get("id") for t in (c.p.get("background_tasks") or [])
-               if t.get("status") == "running" and t.get("id") in desc}
-    running |= {d for d in desc if c.tree.agents[d]["state"] == "running"}
-    if running:
-        reasons.append(f"{len(running)} of your sub-agents are still running ({', '.join(sorted(running))}). "
-                       "Wait for their results before reporting.")
+    ev = _gate_eval(c, a, msg, c.p.get("background_tasks"))
+    reasons, claims, verdicts, states = ev["reasons"], ev["claims"], ev["verdicts"], ev["states"]
     review_for = a.get("review_for")
-    status = (report or {}).get("status")
-    claims = _rel_claims(c, protocol.parse_claims((report or {}).get("claims")))
-    verdicts = protocol.parse_verdicts((report or {}).get("verdicts")) if review_for else []
-    states: dict = {}
-    if gcfg["require_report"] and (not report or status not in protocol.REPORT_STATUSES):
-        reasons.append("Missing or malformed report block. " + protocol.REPORT_HELP)
-    elif review_for:
-        reasons += gate.check_auditor(c.tree, c.agent, review_for, verdicts)
-    elif report:
-        if report.get("task") and report["task"] != a.get("task"):
-            reasons.append(f'Your report says task="{report["task"]}" but you were dispatched for task "{a.get("task")}".')
-        if status == "done":
-            if gcfg["require_claims"] and not claims:
-                reasons.append("A done report needs at least one claim. " + protocol.CLAIMS_HELP)
-            if gcfg["check_evidence"]:
-                reasons += gate.check_evidence(c.tree, c.agent, claims)
-            if gcfg["require_verdicts"] and claims and a.get("review") != "skip":
-                states, problems = gate.claim_states(c.tree, a["task"], c.agent, claims)
-                if problems:
-                    reasons += problems + ([protocol.REVIEW_HELP] if any("not been reviewed" in p or "changed" in p
-                                                                          for p in problems) else [])
     stop_data["claims"] = [{**cl, "state": states.get(cl["id"], "asserted")} for cl in claims] if not review_for else None
 
     if reasons:
         blocks = c.tree.gate_blocks(c.agent)
-        if blocks < gcfg["max_blocks"]:
+        # After a hand-back the agent has ended: a block here would never reach it (the gate ran at hand-back time).
+        if blocks < gcfg["max_blocks"] and not handback:
             c.emit("gate_block", {"reasons": reasons, "attempt": blocks + 1}, summary=f"gate blocked (attempt {blocks + 1})")
             return {"decision": "block",
                     "reason": f"Conductor gate (attempt {blocks + 1}/{gcfg['max_blocks']}):\n- " + "\n- ".join(reasons)}
@@ -365,6 +539,9 @@ def main() -> int:
         cfg = core.load_config(state)
         handler = HANDLERS.get(payload.get("hook_event_name", ""))
         ctx = Ctx(payload, state, cfg)
+        if payload.get("agent_id") and payload.get("agent_type") == "" and payload["agent_id"] not in ctx.tree.agents:
+            ctx.save_tree()
+            return 0  # Claude Code-internal helper (e.g. prompt suggestions): never dispatched, not part of the run
         out = handler(ctx) if handler else None
         ctx.save_tree()
         if out:
