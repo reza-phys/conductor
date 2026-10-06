@@ -5,15 +5,29 @@ The log is the single source of truth; everything here is derived and can be rec
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
+import re
 from typing import Any
 
 MAIN = "main"
+
+
+def norm_text(s: str | None) -> str:
+    """Claim wording for comparison: ignores whitespace, markdown emphasis/backticks, case and a trailing full stop."""
+    s = re.sub(r"[`*_]", "", s or "")
+    return re.sub(r"\s+", " ", s).strip().rstrip(".").strip().lower()
+
+
+def text_sha(s: str | None) -> str:
+    return hashlib.sha256(norm_text(s).encode("utf-8")).hexdigest()[:16]
 
 
 def task_key(plan: str | None, task: str | None) -> str | None:
     """Plan-qualified task key: ("P2@v1", "T3") -> "P2/T3". Without a plan the bare id is the key."""
     if not task:
         return None
+    if "/" in task:  # already qualified ("P1/T2")
+        return task
     pid = (plan or "").split("@")[0].strip()
     return f"{pid}/{task}" if pid else task
 
@@ -47,6 +61,9 @@ class Tree:
         self.ledger: dict[str, dict[str, Any]] = {}
         # sessions: id -> first/last event, run id, end, title (first human prompt)
         self.sessions: dict[str, dict[str, Any]] = {}
+        # human-in-the-loop decisions by item id, and explicit resolutions per task key
+        self.hitl_decisions: dict[str, dict[str, Any]] = {}
+        self.resolutions: dict[str, dict[str, Any]] = {}
         self.apply(events or [])
 
     def apply(self, events: list[dict]) -> None:
@@ -136,10 +153,55 @@ class Tree:
         return out + [MAIN]
 
     def task_ledger(self, task: str) -> dict[str, Any]:
-        return self.ledger.setdefault(task, {"submitted": {}, "verdicts": {}, "final": {}, "final_by": None})
+        return self.ledger.setdefault(task, {"submitted": {}, "verdicts": {}, "final": {}, "final_by": None, "reviews": {}})
 
     def gate_blocks(self, agent_id: str) -> int:
-        return len(self.agents.get(agent_id, {}).get("gate_reasons", []))
+        """Blocks that count against gate.max_blocks: defects only, since the agent last started or was resumed."""
+        return sum(1 for b in self.agents.get(agent_id, {}).get("blocks", []) if not b["transient"])
+
+    def transient_blocks(self, agent_id: str) -> int:
+        return sum(1 for b in self.agents.get(agent_id, {}).get("blocks", []) if b["transient"])
+
+    # --- derived state: recomputed from the ledger, never frozen --------------------------------------------------
+    def claims_of(self, key: str) -> tuple[dict, str | None, bool]:
+        """(claims, worker, final?) of a task: its final claims, or, if the worker never delivered a report the hooks
+        saw, the latest wording it submitted for review."""
+        led = self.ledger.get(key) or {}
+        if led.get("final"):
+            return led["final"], led.get("final_by"), True
+        sub = led.get("submitted") or {}
+        by = next((c.get("by") for c in reversed(list(sub.values())) if c.get("by")), None)
+        return sub, by, False
+
+    def claim_state(self, key: str, cid: str) -> tuple[str, dict | None]:
+        """Latest independent verdict on the claim's *current* wording -> (state, verdict).
+        state: verified | refuted | unverified | unreviewed | asserted (review skipped)."""
+        led = self.ledger.get(key) or {}
+        claims, worker, _ = self.claims_of(key)
+        c = claims.get(cid)
+        if not c:
+            return "unreviewed", None
+        sha = c.get("text_sha") or text_sha(c.get("text"))
+        vs = [v for v in (led.get("verdicts") or {}).get(cid, [])
+              if v.get("by") and v["by"] != worker and v.get("text_sha") == sha]
+        if vs:
+            return vs[-1]["verdict"], vs[-1]
+        return ("asserted" if led.get("review") == "skip" else "unreviewed"), None
+
+    def task_resolution(self, key: str) -> dict | None:
+        """How an escalated (or blocked) task was resolved, if it was: by a human decision, or by a later audit that
+        verified every final claim. None means the task's own agent states stand."""
+        if key in self.resolutions:
+            return self.resolutions[key]
+        led = self.ledger.get(key) or {}
+        final = led.get("final") or {}
+        if not final or led.get("review") == "skip":
+            return None
+        states = {cid: self.claim_state(key, cid) for cid in final}
+        if all(st == "verified" for st, _ in states.values()):
+            last = max((v for _, v in states.values() if v), key=lambda v: v.get("ts") or "")
+            return {"decision": "verified", "by": "re-audit", "auditor": last.get("by"), "ts": last.get("ts")}
+        return None
 
     def _agent(self, agent_id: str) -> dict:
         return self.agents.setdefault(agent_id, {
@@ -147,7 +209,7 @@ class Tree:
             "description": None, "state": "queued", "started": None, "ended": None,
             "last_action": None, "last_ts": None, "gate_reasons": [], "gate_result": None,
             "report": None, "files_read": set(), "files_written": [], "output_path": None,
-            "review_for": None, "tool_use_id": None,
+            "review_for": None, "tool_use_id": None, "blocks": [],
         })
 
     def _bind(self, agent_id: str, tool_use_id: str | None) -> None:
@@ -197,6 +259,23 @@ class Tree:
         self._on_dispatch(e)
         self.dispatches[e["data"]["tool_use_id"]]["denied"] = True
 
+    def _on_agent_resumed(self, e: dict) -> None:
+        """A parent sent a stopped agent a new message: it runs again, with a fresh block budget."""
+        a = self._agent((e.get("data") or {}).get("target") or e["agent"])
+        a.update(state="running", ended=None, blocks=[], gate_result=None, last_ts=e["ts"],
+                 last_action="resumed", resumed_at=e["ts"])
+
+    def _on_hitl_decision(self, e: dict) -> None:
+        d = e.get("data") or {}
+        if d.get("id"):
+            self.hitl_decisions[d["id"]] = {**d, "ts": e["ts"], "session": e.get("session")}
+
+    def _on_review_resolved(self, e: dict) -> None:
+        d = e.get("data") or {}
+        if d.get("task"):
+            self.resolutions[d["task"]] = {"decision": d.get("decision"), "by": d.get("by") or "human",
+                                           "note": d.get("note"), "ts": e["ts"], "item": d.get("item")}
+
     def _on_agent_start(self, e: dict) -> None:
         a = self._agent(e["agent"])
         a.update(type=e.get("agent_type"), started=e["ts"], state="running", last_ts=e["ts"],
@@ -228,6 +307,7 @@ class Tree:
     def _on_gate_block(self, e: dict) -> None:
         a = self._agent(e["agent"])
         a["gate_reasons"].append("; ".join(e["data"].get("reasons", [])))
+        a.setdefault("blocks", []).append({"transient": bool(e["data"].get("transient")), "ts": e["ts"]})
         a["gate_result"] = "blocked"
         a["last_action"] = "gate: blocked"
         a["last_ts"] = e["ts"]
@@ -248,9 +328,12 @@ class Tree:
         a.update(ended=e["ts"], last_ts=e["ts"], output_path=d.get("output_path"), report=d.get("report"))
         if a.get("task") and not a.get("review_for") and d.get("claims") is not None:  # a["task"] is the plan-qualified key
             led = self.task_ledger(a["task"])
-            led["final"] = {c["id"]: c for c in d["claims"]}
+            led["final"] = {c["id"]: {**c, "text_sha": c.get("text_sha") or text_sha(c.get("text"))} for c in d["claims"]}
             led["final_by"] = e["agent"]
             led["final_status"] = d.get("gate")
+            led["review"] = a.get("review")
+            led["final_reasons"] = d.get("reasons") or []
+            led["final_ts"] = e["ts"]
         gate = d.get("gate")  # passed | escalated | exempt
         a["gate_result"] = "passed (review skipped)" if gate == "passed" and d.get("review") == "skipped" else gate
         status = (d.get("report") or {}).get("status")
@@ -262,19 +345,34 @@ class Tree:
             a["state"] = "done"
         a["last_action"] = f"finished ({a['state']})"
 
+    def _legacy_key(self, task: str, agent: str | None) -> str:
+        """Logs before 0.3.0 recorded a worker's own review under the bare id ("T1"); qualify it with the worker's plan."""
+        if task and "/" not in task and not task.startswith("review:") and task not in self.ledger:
+            plan = (self.agents.get(agent or "") or {}).get("plan")
+            if plan:
+                return task_key(plan, task)
+        return task
+
     def _on_claims_submitted(self, e: dict) -> None:
         d = e["data"]
-        led = self.task_ledger(d["task"])
+        led = self.task_ledger(self._legacy_key(d["task"], e.get("agent")))
+        review = led.setdefault("reviews", {}).setdefault(d.get("tool_use_id") or "-", {})
         for c in d.get("claims", []):
-            led["submitted"][c["id"]] = {**c, "by": e.get("agent"), "ts": e["ts"], "review": d.get("tool_use_id")}
+            sha = c.get("text_sha") or text_sha(c.get("text"))
+            led["submitted"][c["id"]] = {**c, "text_sha": sha, "by": e.get("agent"), "ts": e["ts"], "review": d.get("tool_use_id")}
+            review[c["id"]] = sha  # what *this* review was asked to check, so parallel/re-audits never mix wordings
 
     def _on_verdicts(self, e: dict) -> None:
         d = e["data"]
-        led = self.task_ledger(d["task"])
+        auditor = self.agents.get(e.get("agent") or "", {})
+        task = d["task"]
+        if "/" not in task and "/" in str(auditor.get("review_for") or "") and auditor["review_for"].endswith("/" + task):
+            task = auditor["review_for"]
+        led = self.task_ledger(task)
+        asked = led.get("reviews", {}).get(auditor.get("tool_use_id") or "", {})
         for v in d.get("verdicts", []):
-            sub = led["submitted"].get(v["id"], {})
-            led["verdicts"].setdefault(v["id"], []).append(
-                {**v, "by": e.get("agent"), "ts": e["ts"], "text_sha": sub.get("text_sha")})
+            sha = asked.get(v["id"]) or (led["submitted"].get(v["id"]) or {}).get("text_sha")
+            led["verdicts"].setdefault(v["id"], []).append({**v, "by": e.get("agent"), "ts": e["ts"], "text_sha": sha})
 
     def _on_hitl(self, e: dict) -> None:
         self.hitl.append(e)
@@ -293,6 +391,11 @@ class Tree:
         elif e.get("event") == "exec" and data.get("command"):
             o["cmds"].append(data["command"])
             o.setdefault("files_ref", set()).update(data.get("files") or [])  # project files the command named
+            o["urls"].update(u.rstrip("/") for u in data.get("urls") or [])  # fetched with curl/wget/gh api
+            for w in data.get("writes") or []:  # files the command created or changed (cp, mv, tar -C, redirects…)
+                o["files"].add(w)
+                if w not in a["files_written"]:
+                    a["files_written"].append(w)
         elif e.get("event") == "observe_source":
             if data.get("url"):
                 o["urls"].add(data["url"].rstrip("/"))

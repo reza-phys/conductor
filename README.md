@@ -20,7 +20,9 @@ What makes it different from a prompt that says "please plan, delegate and doubl
 | (as auditor) mark claims verified without checking anything | blocks the verdict |
 | (as orchestrator) edit project files itself, with Write/Edit or obvious Bash writes (`>`, `tee`, `sed -i`, `cp`, `rm`…) | refuses: the orchestrator plans, workers make the changes |
 
-After 3 failed attempts the agent is let through, but its output is marked **unverified** and lands in your review queue. Nothing unverified reaches you unlabelled.
+After 3 failed attempts the agent is let through, but its output is marked **unverified** and lands in your review queue. Nothing unverified reaches you unlabelled. Waiting for a sub-agent or for verdicts already on their way does not use up an attempt, and resuming the agent gives it a fresh budget.
+
+An escalation is not final. State is recomputed from the log, so a later audit that verifies every final claim (for example `<conductor-review for="P1/T2">` from the orchestrator) resolves it, and so does your decision. Each open item in the dashboard states the problem, the latest audit tally and two or three options, each with a **Copy** button. Paste the copied line into the chat, or run `conductor decide <id> <option>`; the item then moves to *Decisions*.
 
 ## Features
 
@@ -86,6 +88,14 @@ While it runs:
 /conductor:artifact             # publish the status page to claude.ai (asks before enabling)
 ```
 
+In a terminal:
+
+```
+conductor decide R-P1/T2 accept --note "checked by hand"   # decide an open item (or paste its copied line)
+conductor reaudit T2                                       # print the review envelope for a task's final claims
+conductor resolve T2 --accept "reason"                     # accept an escalated task as done
+```
+
 ```
 orchestrator
 └─ ✓ analyst·ad9064 [T1] Audit calc.py for correctness 2m48s · gate passed ×1
@@ -133,7 +143,8 @@ Design details: [docs/DESIGN.md](docs/DESIGN.md) · Provenance model: [docs/prov
 | `orchestrator.allow_project_edits` | `false` | let the main session edit project files |
 | `orchestrator.inject_protocol` | `true` | soft-mode brief at session start |
 | `gate.require_claims` / `check_evidence` / `require_verdicts` | `true` | the three gate checks |
-| `gate.max_blocks` | `3` | then let the agent through, marked unverified |
+| `gate.max_blocks` | `3` | then let the agent through, marked unverified (resets when the agent is resumed) |
+| `gate.max_transient_blocks` | `10` | waits for running sub-agents or pending verdicts; these don't count toward `max_blocks` |
 | `gate.allow_review_skip` | `true` | honour `review="skip"` on a task envelope for low-stakes work; its claims show as *asserted*, not verified |
 | `provenance.commit_trailers` | `true` | stamp agent commits |
 | `ledger.store_prompts` | `true` | keep each dispatch prompt (clipped to `ledger.prompt_clip`, 4000) in the local log, for the task view |

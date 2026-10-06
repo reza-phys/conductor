@@ -14,10 +14,10 @@
  "summary": {
   "phases_done": 0,
   "phases_total": 2,
-  "agents_running": 2,
-  "agents_done": 11,
+  "agents_running": 1,
+  "agents_done": 12,
   "agents_total": 13,
-  "open_human": 2,
+  "open_human": 3,
   "unverified": 0,
   "claims_verified": 7,
   "claims_total": 11
@@ -27,7 +27,7 @@
    "id": "PH1",
    "name": "Writers & CLI",
    "state": "running",
-   "note": "Writers blocked at the gate; CLI wiring running; docs done.",
+   "note": "Writers escalated to you; CLI wiring running; docs done.",
    "tasks": [
     "T1",
     "T2",
@@ -59,7 +59,7 @@
     "a0e4b6c8d2f1a9357"
    ],
    "in_plan": true,
-   "note": "Gate blocked twice: missing test evidence."
+   "note": "Gate escalated after 3 blocks (C3 refuted); waiting on you."
   },
   {
    "id": "T2",
@@ -205,13 +205,13 @@
    "description": "Prototype a CSV writer for one sample report",
    "state": "done",
    "started": "2026-10-05T15:10:22Z",
-   "ended": "2026-10-05T15:48:10Z",
-   "duration_s": 2268,
+   "ended": "2026-10-05T15:43:00Z",
+   "duration_s": 1958,
    "last_action": "Bash pytest tests/test_csv_proto.py -q",
    "last_ts": "2026-10-05T15:46:55Z",
    "gate": {
-    "blocks": 1,
-    "result": "passed",
+    "blocks": 3,
+    "result": "escalated",
     "reasons": [
      "Claim C1 'prototype round-trips the sample' has no observed run by this agent."
     ]
@@ -231,13 +231,13 @@
   },
   {
    "id": "a6e0d2f4b8c1a5937",
-   "parent": "a2c47e9b1d0f3a681",
-   "depth": 2,
+   "parent": "main",
+   "depth": 1,
    "type": "conductor:auditor",
    "task": "review:T2",
    "task_key": "P1/T2",
    "session": "7b2d55a0-c3e9-41f6-8d2b-96e0f4a1c728",
-   "description": "Review P1/T2 claims",
+   "description": "Re-audit P1/T2 claims",
    "state": "done",
    "started": "2026-10-05T15:43:30Z",
    "ended": "2026-10-05T15:47:20Z",
@@ -274,9 +274,14 @@
    "last_action": "WebFetch arrow.apache.org/docs/python/timestamps.html",
    "last_ts": "2026-10-05T16:11:30Z",
    "gate": {
-    "blocks": 0,
-    "result": "passed",
-    "reasons": []
+    "blocks": 3,
+    "result": "escalated",
+    "reasons": [
+     "C1 cites url:arrow.apache.org/docs/python/timestamps.html#schema but you never fetched it.",
+     "C2 cites url:fastparquet.readthedocs.io/en/latest/details.html but you never fetched it.",
+     "C1 changed after its review; send the new wording to an auditor.",
+     "C2 changed after its review; send the new wording to an auditor."
+    ]
    },
    "report": {
     "status": "done",
@@ -355,15 +360,15 @@
    "task_key": "P2/T1",
    "session": "c41e9a07-2f6d-4b8e-a153-7d09e2bc64f1",
    "description": "Implement CSV and Parquet writers",
-   "state": "blocked",
+   "state": "done",
    "started": "2026-10-06T13:44:05Z",
-   "ended": null,
-   "duration_s": 1157,
+   "ended": "2026-10-06T14:03:05Z",
+   "duration_s": 1140,
    "last_action": "Bash pytest tests/test_export_writers.py -q",
    "last_ts": "2026-10-06T14:03:01Z",
    "gate": {
-    "blocks": 2,
-    "result": "blocked",
+    "blocks": 3,
+    "result": "escalated",
     "reasons": [
      "Claim C2 'all writer tests pass' has no observed test run by this agent or its descendants.",
      "Claim C3 'tz-aware timestamps round-trip' was refuted by the auditor (offset dropped in Parquet output)."
@@ -372,7 +377,7 @@
    "report": {
     "status": "blocked",
     "summary": "Implemented write_csv() and write_parquet() in src/demo_app/export/. CSV round-trips the sample report. Parquet writer currently drops the UTC offset; fixing by casting to timestamp[us, tz=UTC] before writing.",
-    "needs": "H2: pyarrow required or optional extra?"
+    "needs": "none"
    },
    "files_read": 14,
    "files_written": [
@@ -614,74 +619,291 @@
  ],
  "decisions": [
   {
-   "id": "H2",
-   "q": "Should pyarrow be a required dependency or an optional extra?",
-   "state": "open",
-   "asked_by": "a3c9e1b27d40f8a15",
-   "task": "T1",
-   "explain": "Parquet export needs pyarrow (~40 MB). The project has no pyarrow dependency today. Making it optional keeps installs small; CSV export works either way. Suggested: optional extra.",
+   "categories": [],
    "options": [
     {
      "id": "a",
      "label": "Optional extra [parquet]",
-     "description": "pip install demo-app[parquet]; clear error message if missing. (suggested)",
-     "paste": "H2: make pyarrow an optional extra `[parquet]` with a clear error if it's missing."
+     "consequence": "pip install demo-app[parquet]; clear error message if missing.",
+     "recommended": true
     },
     {
      "id": "b",
      "label": "Required dependency",
-     "description": "Simplest code path; every install pulls pyarrow.",
-     "paste": "H2: add pyarrow as a required dependency."
+     "consequence": "Simplest code path; every install pulls pyarrow."
     },
     {
      "id": "c",
      "label": "CSV only for now",
-     "description": "Drop Parquet from this run; revisit later.",
-     "paste": "H2: ship CSV only for now; drop Parquet from this run."
+     "consequence": "Drop Parquet from this run; revisit later."
     }
    ],
-   "resolution": null,
-   "ts": "2026-10-06T14:01:10Z"
+   "suggested": "a",
+   "why_suggested": "Keeps installs small; CSV export works either way.",
+   "details": "AskUserQuestion\nheader: Parquet\nquestion: Should pyarrow be a required dependency or an optional extra?\nanswer: Optional extra [parquet]",
+   "decision": "Optional extra [parquet]",
+   "note": null,
+   "decided_by": "human",
+   "decided_ts": "2026-10-06T14:01:40Z",
+   "record": "H2 · Problem: pyarrow required or optional extra? · Decided: Optional extra [parquet] · by human 14:01",
+   "id": "H2",
+   "kind": "decision",
+   "state": "decided",
+   "title": "Parquet: should pyarrow be a required dependency or an optional extra?",
+   "problem": "Parquet export needs pyarrow (~40 MB), which the project does not depend on today.",
+   "context": {
+    "task": "P2/T1",
+    "agent": "a3c9e1b27d40f8a15",
+    "since": "2026-10-06T14:01:10Z",
+    "session": "c41e9a07-2f6d-4b8e-a153-7d09e2bc64f1"
+   }
   },
   {
-   "id": "H1",
-   "q": "Column naming in exported files: keep the xarray variable names or convert to snake_case?",
-   "state": "decided",
-   "asked_by": "main",
-   "task": "T1",
-   "explain": "Variable names mix styles (t2m, windSpeed10m).",
+   "categories": [],
    "options": [
     {
      "id": "a",
      "label": "Keep original",
-     "paste": "H1: keep the original names."
+     "consequence": "Column names match the xarray variables."
     },
     {
      "id": "b",
      "label": "snake_case",
-     "paste": "H1: convert to snake_case."
+     "consequence": "Convert every column name to snake_case."
     }
    ],
-   "resolution": "snake_case",
-   "ts": "2026-10-06T13:43:20Z"
+   "suggested": null,
+   "why_suggested": null,
+   "details": "AskUserQuestion\nheader: Columns\nquestion: Column naming in exported files: keep the xarray variable names or convert to snake_case?\nanswer: snake_case",
+   "decision": "snake_case",
+   "note": null,
+   "decided_by": "human",
+   "decided_ts": "2026-10-06T13:43:20Z",
+   "record": "H1 · Problem: keep variable names or snake_case? · Decided: snake_case · by human 13:43",
+   "id": "H1",
+   "kind": "decision",
+   "state": "decided",
+   "title": "Columns: keep the xarray variable names or convert to snake_case?",
+   "problem": "Variable names in exported files mix styles (t2m, windSpeed10m).",
+   "context": {
+    "task": "P2/T1",
+    "agent": "main",
+    "since": "2026-10-06T13:42:58Z",
+    "session": "c41e9a07-2f6d-4b8e-a153-7d09e2bc64f1"
+   }
+  },
+  {
+   "categories": [
+    {
+     "label": "evidence not observed",
+     "count": 1
+    }
+   ],
+   "options": [
+    {
+     "id": "accept",
+     "label": "Accept T2 as done",
+     "consequence": "Marks T2 done; claims keep their audit state."
+    },
+    {
+     "id": "reaudit",
+     "label": "Re-audit T2",
+     "consequence": "Orchestrator sends a fresh auditor with the final claims.",
+     "recommended": true
+    },
+    {
+     "id": "redo",
+     "label": "Redo T2",
+     "consequence": "New worker; current output discarded."
+    }
+   ],
+   "suggested": "reaudit",
+   "why_suggested": "C1 had no observed run; an independent re-run settles it.",
+   "details": "gate escalated after 3 blocks (agent a2c47e9b1d0f3a681):\n- Claim C1 'prototype round-trips the sample' has no observed run by this agent.\nre-audit a6e0d2f4b8c1a5937: C1 verified (re-ran test, 3 passed) · C2 verified",
+   "decision": "Re-audit T2",
+   "note": null,
+   "decided_by": "re-audit",
+   "decided_ts": "2026-10-05T15:47:20Z",
+   "record": "R-P1/T2 · Problem: T2 escalated after 3 gate blocks · Decided: closed by re-audit (2/2 verified) · 10-05 15:47",
+   "id": "R-P1/T2",
+   "kind": "review",
+   "state": "decided",
+   "title": "T2 escalated after 3 gate blocks — accept or re-audit?",
+   "problem": "The gate stopped retrying T2: no observed run for C1. A re-audit then verified 2/2 claims.",
+   "context": {
+    "task": "P1/T2",
+    "agent": "a2c47e9b1d0f3a681",
+    "claims": "2/2 verified",
+    "since": "2026-10-05T15:42:58Z",
+    "session": "7b2d55a0-c3e9-41f6-8d2b-96e0f4a1c728"
+   }
   }
  ],
  "review_queue": [
   {
-   "task": "T1",
-   "agent": "a3c9e1b27d40f8a15",
+   "categories": [
+    {
+     "label": "refuted",
+     "count": 1
+    },
+    {
+     "label": "evidence not observed",
+     "count": 1
+    }
+   ],
+   "options": [
+    {
+     "id": "redo",
+     "label": "Redo T1",
+     "consequence": "New worker fixes the Parquet tz offset; current claims are withdrawn.",
+     "recommended": true,
+     "paste": "[Conductor HITL R-P2/T1] Problem: T1 escalated after 3 gate blocks (1 claim refuted; latest audit 1/3 verified). Decision: Redo T1."
+    },
+    {
+     "id": "reaudit",
+     "label": "Re-audit T1",
+     "consequence": "Orchestrator sends a fresh auditor with the final claims.",
+     "paste": "[Conductor HITL R-P2/T1] Problem: T1 escalated after 3 gate blocks (1 claim refuted; latest audit 1/3 verified). Decision: Re-audit T1."
+    },
+    {
+     "id": "accept",
+     "label": "Accept T1 as done",
+     "consequence": "Marks T1 done with C3 refuted; T4 tests will hit the bug.",
+     "paste": "[Conductor HITL R-P2/T1] Problem: T1 escalated after 3 gate blocks (1 claim refuted; latest audit 1/3 verified). Decision: Accept T1 as done."
+    }
+   ],
+   "suggested": "redo",
+   "why_suggested": "An independent auditor refuted C3; accepting would ship a known bug.",
+   "details": "gate escalated after 3 blocks (agent a3c9e1b27d40f8a15):\n- Claim C2 'all writer tests pass' has no observed test run by this agent or its descendants.\n- Claim C3 'tz-aware timestamps round-trip' was refuted by the auditor (offset dropped in Parquet output).\n\nattempt 1 (13:55:31): No claims reported for T1.\nattempt 2 (14:02:12): same two reasons as above.\nattempt 3 (14:03:05): same two reasons as above.",
+   "decision": null,
+   "note": null,
+   "decided_by": null,
+   "decided_ts": null,
+   "record": null,
+   "id": "R-P2/T1",
+   "kind": "review",
    "state": "open",
-   "reason": "Claim C2 'all writer tests pass' is unverified: no pytest run observed for this agent."
+   "title": "T1 escalated with a refuted claim — redo, re-audit or accept?",
+   "problem": "The gate stopped retrying T1 after 3 blocks. Latest audit: 1/3 claims verified, 1 refuted (tz offset dropped in Parquet output), 1 not observed.",
+   "context": {
+    "task": "P2/T1",
+    "agent": "a3c9e1b27d40f8a15",
+    "claims": "1/3 verified · 1 refuted",
+    "since": "2026-10-06T14:03:05Z",
+    "session": "c41e9a07-2f6d-4b8e-a153-7d09e2bc64f1"
+   }
+  },
+  {
+   "categories": [
+    {
+     "label": "evidence not observed",
+     "count": 2
+    },
+    {
+     "label": "claims reworded after review",
+     "count": 2
+    }
+   ],
+   "options": [
+    {
+     "id": "accept",
+     "label": "Accept T3 as done",
+     "consequence": "Marks T3 done; claims keep their audit state.",
+     "recommended": true,
+     "paste": "[Conductor HITL R-P1/T3] Problem: T3 escalated after 3 gate blocks (bookkeeping only; latest audit 2/2 verified). Decision: Accept T3 as done."
+    },
+    {
+     "id": "reaudit",
+     "label": "Re-audit T3",
+     "consequence": "Orchestrator sends a fresh auditor with the final claim wording.",
+     "paste": "[Conductor HITL R-P1/T3] Problem: T3 escalated after 3 gate blocks (bookkeeping only; latest audit 2/2 verified). Decision: Re-audit T3."
+    },
+    {
+     "id": "redo",
+     "label": "Redo T3",
+     "consequence": "New analyst; current output discarded.",
+     "paste": "[Conductor HITL R-P1/T3] Problem: T3 escalated after 3 gate blocks (bookkeeping only; latest audit 2/2 verified). Decision: Redo T3."
+    }
+   ],
+   "suggested": "accept",
+   "why_suggested": "Every final claim has a matching 'verified' verdict from an independent auditor.",
+   "details": "gate escalated after 3 blocks (agent a4b9c1e7f3d2a0586):\n- C1 cites url:arrow.apache.org/docs/python/timestamps.html#schema but you never fetched it.\n- C2 cites url:fastparquet.readthedocs.io/en/latest/details.html but you never fetched it.\n- C1 changed after its review; send the new wording to an auditor.\n- C2 changed after its review; send the new wording to an auditor.",
+   "decision": null,
+   "note": null,
+   "decided_by": null,
+   "decided_ts": null,
+   "record": null,
+   "id": "R-P1/T3",
+   "kind": "review",
+   "state": "open",
+   "title": "T3 escalated after 3 gate blocks — accept or re-audit?",
+   "problem": "The gate stopped retrying T3. Reasons are bookkeeping only: evidence not observed (2 claims); claims reworded after review (2). Latest audit: 2/2 claims verified.",
+   "context": {
+    "task": "P1/T3",
+    "agent": "a4b9c1e7f3d2a0586",
+    "claims": "2/2 verified",
+    "since": "2026-10-05T16:20:40Z",
+    "session": "7b2d55a0-c3e9-41f6-8d2b-96e0f4a1c728"
+   }
+  },
+  {
+   "categories": [],
+   "options": [
+    {
+     "id": "answer",
+     "label": "Answer the question",
+     "consequence": "The orchestrator passes your answer to the worker, which continues.",
+     "recommended": true,
+     "paste": "[Conductor HITL N-a5d18f] Problem: T2 worker asks whether export may overwrite an existing output file. Decision: answer. Note: <your answer>."
+    },
+    {
+     "id": "stop",
+     "label": "Stop T2",
+     "consequence": "The worker stops; T2 goes back to the plan as blocked.",
+     "paste": "[Conductor HITL N-a5d18f] Problem: T2 worker asks whether export may overwrite an existing output file. Decision: stop."
+    }
+   ],
+   "suggested": "answer",
+   "why_suggested": "Only you can set this behaviour; the rest of T2 is unaffected.",
+   "details": "needs: Should `demo-app export` overwrite an existing output file, refuse, or add a --force flag?\n(worker a5d18f0b93e2c7a64, report pending)",
+   "decision": null,
+   "note": null,
+   "decided_by": null,
+   "decided_ts": null,
+   "record": null,
+   "id": "N-a5d18f",
+   "kind": "needs",
+   "state": "open",
+   "title": "Should `export` overwrite an existing output file?",
+   "problem": "The T2 worker needs a rule for an existing output path. It paused the CLI wiring until you answer.",
+   "context": {
+    "task": "P2/T2",
+    "agent": "a5d18f0b93e2c7a64",
+    "since": "2026-10-06T14:03:20Z",
+    "session": "c41e9a07-2f6d-4b8e-a153-7d09e2bc64f1"
+   }
   }
  ],
  "compare": null,
  "results": [],
  "log": [
   {
+   "ts": "2026-10-06T14:03:20Z",
+   "kind": "hitl",
+   "agent": "a5d18f0b93e2c7a64",
+   "text": "needs N-a5d18f: overwrite an existing output file?"
+  },
+  {
    "ts": "2026-10-06T14:03:18Z",
    "kind": "tool",
    "agent": "a5d18f0b93e2c7a64",
    "text": "Edit src/demo_app/cli.py (+38 −2)"
+  },
+  {
+   "ts": "2026-10-06T14:03:05Z",
+   "kind": "gate",
+   "agent": "a3c9e1b27d40f8a15",
+   "text": "SubagentStop escalated after 3 blocks: C2 not observed; C3 refuted → review queue"
   },
   {
    "ts": "2026-10-06T14:03:01Z",
@@ -694,6 +916,12 @@
    "kind": "gate",
    "agent": "a3c9e1b27d40f8a15",
    "text": "SubagentStop blocked (2nd): C2 has no observed test run; C3 refuted"
+  },
+  {
+   "ts": "2026-10-06T14:01:40Z",
+   "kind": "hitl",
+   "agent": "main",
+   "text": "H2 answered: Optional extra [parquet]"
   },
   {
    "ts": "2026-10-06T14:01:10Z",
@@ -888,10 +1116,28 @@
    "text": "analyst done: recommend pyarrow"
   },
   {
+   "ts": "2026-10-05T16:20:40Z",
+   "kind": "gate",
+   "agent": "a4b9c1e7f3d2a0586",
+   "text": "SubagentStop escalated after 3 blocks (bookkeeping only) → review queue"
+  },
+  {
    "ts": "2026-10-05T16:19:50Z",
    "kind": "verdict",
    "agent": "a7d5f3b1e9c0a2468",
    "text": "C1 verified · C2 verified"
+  },
+  {
+   "ts": "2026-10-05T16:18:40Z",
+   "kind": "gate",
+   "agent": "a4b9c1e7f3d2a0586",
+   "text": "SubagentStop blocked (2nd): evidence not observed; C1, C2 reworded after review"
+  },
+  {
+   "ts": "2026-10-05T16:17:02Z",
+   "kind": "gate",
+   "agent": "a4b9c1e7f3d2a0586",
+   "text": "SubagentStop blocked (1st): evidence not observed for C1, C2"
   },
   {
    "ts": "2026-10-05T16:14:12Z",
@@ -912,10 +1158,10 @@
    "text": "main → conductor:analyst T3 “Compare Parquet writer options”"
   },
   {
-   "ts": "2026-10-05T15:48:10Z",
-   "kind": "report",
-   "agent": "a2c47e9b1d0f3a681",
-   "text": "worker done: gate passed after 1 block"
+   "ts": "2026-10-05T15:47:21Z",
+   "kind": "hitl",
+   "agent": "main",
+   "text": "R-P1/T2 closed by re-audit: 2/2 claims verified"
   },
   {
    "ts": "2026-10-05T15:47:20Z",
@@ -926,14 +1172,32 @@
   {
    "ts": "2026-10-05T15:43:30Z",
    "kind": "dispatch",
+   "agent": "main",
+   "text": "main → conductor:auditor T2 “Re-audit P1/T2 claims”"
+  },
+  {
+   "ts": "2026-10-05T15:43:00Z",
+   "kind": "report",
    "agent": "a2c47e9b1d0f3a681",
-   "text": "worker → conductor:auditor T2 “Review P1/T2 claims”"
+   "text": "worker done: gate escalated after 3 blocks"
+  },
+  {
+   "ts": "2026-10-05T15:42:58Z",
+   "kind": "gate",
+   "agent": "a2c47e9b1d0f3a681",
+   "text": "SubagentStop escalated after 3 blocks → review queue"
   },
   {
    "ts": "2026-10-05T15:41:03Z",
    "kind": "tool",
    "agent": "a2c47e9b1d0f3a681",
    "text": "Bash pytest tests/test_csv_proto.py -q"
+  },
+  {
+   "ts": "2026-10-05T15:40:05Z",
+   "kind": "gate",
+   "agent": "a2c47e9b1d0f3a681",
+   "text": "SubagentStop blocked (2nd): C1 has no observed run"
   },
   {
    "ts": "2026-10-05T15:38:12Z",
@@ -1142,6 +1406,15 @@
         "Claim C2 'all writer tests pass' has no observed test run by this agent or its descendants.",
         "Claim C3 'tz-aware timestamps round-trip' was refuted by the auditor (offset dropped in Parquet output)."
        ]
+      },
+      {
+       "ts": "2026-10-06T14:03:05Z",
+       "agent": "a3c9e1b27d40f8a15",
+       "attempt": 3,
+       "reasons": [
+        "Claim C2 'all writer tests pass' has no observed test run by this agent or its descendants.",
+        "Claim C3 'tz-aware timestamps round-trip' was refuted by the auditor (offset dropped in Parquet output)."
+       ]
       }
      ],
      "files_written": [
@@ -1230,6 +1503,12 @@
        "text": "request_human H2: pyarrow required or optional extra?"
       },
       {
+       "ts": "2026-10-06T14:01:40Z",
+       "kind": "hitl",
+       "agent": "main",
+       "text": "H2 answered: Optional extra [parquet]"
+      },
+      {
        "ts": "2026-10-06T14:02:12Z",
        "kind": "gate",
        "agent": "a3c9e1b27d40f8a15",
@@ -1240,6 +1519,12 @@
        "kind": "tool",
        "agent": "a3c9e1b27d40f8a15",
        "text": "Bash pytest tests/test_export_writers.py -q"
+      },
+      {
+       "ts": "2026-10-06T14:03:05Z",
+       "kind": "gate",
+       "agent": "a3c9e1b27d40f8a15",
+       "text": "SubagentStop escalated after 3 blocks: C2 not observed; C3 refuted → review queue"
       }
      ]
     },
@@ -1284,6 +1569,12 @@
        "kind": "tool",
        "agent": "a5d18f0b93e2c7a64",
        "text": "Edit src/demo_app/cli.py (+38 −2)"
+      },
+      {
+       "ts": "2026-10-06T14:03:20Z",
+       "kind": "hitl",
+       "agent": "a5d18f0b93e2c7a64",
+       "text": "needs N-a5d18f: overwrite an existing output file?"
       }
      ]
     },
@@ -1417,7 +1708,7 @@
    },
    "counts": {
     "tasks": 3,
-    "agents_running": 2,
+    "agents_running": 1,
     "open_human": 2
    }
   },
@@ -1479,6 +1770,22 @@
        "reasons": [
         "Claim C1 'prototype round-trips the sample' has no observed run by this agent."
        ]
+      },
+      {
+       "ts": "2026-10-05T15:40:05Z",
+       "agent": "a2c47e9b1d0f3a681",
+       "attempt": 2,
+       "reasons": [
+        "Claim C1 'prototype round-trips the sample' has no observed run by this agent."
+       ]
+      },
+      {
+       "ts": "2026-10-05T15:42:58Z",
+       "agent": "a2c47e9b1d0f3a681",
+       "attempt": 3,
+       "reasons": [
+        "Claim C1 'prototype round-trips the sample' has no observed run by this agent."
+       ]
       }
      ],
      "files_written": [
@@ -1511,16 +1818,34 @@
        "text": "SubagentStop blocked (1st): C1 has no observed run"
       },
       {
+       "ts": "2026-10-05T15:40:05Z",
+       "kind": "gate",
+       "agent": "a2c47e9b1d0f3a681",
+       "text": "SubagentStop blocked (2nd): C1 has no observed run"
+      },
+      {
        "ts": "2026-10-05T15:41:03Z",
        "kind": "tool",
        "agent": "a2c47e9b1d0f3a681",
        "text": "Bash pytest tests/test_csv_proto.py -q"
       },
       {
+       "ts": "2026-10-05T15:42:58Z",
+       "kind": "gate",
+       "agent": "a2c47e9b1d0f3a681",
+       "text": "SubagentStop escalated after 3 blocks → review queue"
+      },
+      {
+       "ts": "2026-10-05T15:43:00Z",
+       "kind": "report",
+       "agent": "a2c47e9b1d0f3a681",
+       "text": "worker done: gate escalated after 3 blocks"
+      },
+      {
        "ts": "2026-10-05T15:43:30Z",
        "kind": "dispatch",
-       "agent": "a2c47e9b1d0f3a681",
-       "text": "worker → conductor:auditor T2 “Review P1/T2 claims”"
+       "agent": "main",
+       "text": "main → conductor:auditor T2 “Re-audit P1/T2 claims”"
       },
       {
        "ts": "2026-10-05T15:47:20Z",
@@ -1529,10 +1854,10 @@
        "text": "C1 verified · C2 verified"
       },
       {
-       "ts": "2026-10-05T15:48:10Z",
-       "kind": "report",
-       "agent": "a2c47e9b1d0f3a681",
-       "text": "worker done: gate passed after 1 block"
+       "ts": "2026-10-05T15:47:21Z",
+       "kind": "hitl",
+       "agent": "main",
+       "text": "R-P1/T2 closed by re-audit: 2/2 claims verified"
       }
      ]
     },
@@ -1577,7 +1902,39 @@
        "note": "by analyst·a4b9c1e · verified by auditor·a7d5f3b"
       }
      ],
-     "gates": [],
+     "gates": [
+      {
+       "ts": "2026-10-05T16:17:02Z",
+       "agent": "a4b9c1e7f3d2a0586",
+       "attempt": 1,
+       "reasons": [
+        "C1 cites url:arrow.apache.org/docs/python/timestamps.html#schema but you never fetched it.",
+        "C2 cites url:fastparquet.readthedocs.io/en/latest/details.html but you never fetched it."
+       ]
+      },
+      {
+       "ts": "2026-10-05T16:18:40Z",
+       "agent": "a4b9c1e7f3d2a0586",
+       "attempt": 2,
+       "reasons": [
+        "C1 cites url:arrow.apache.org/docs/python/timestamps.html#schema but you never fetched it.",
+        "C2 cites url:fastparquet.readthedocs.io/en/latest/details.html but you never fetched it.",
+        "C1 changed after its review; send the new wording to an auditor.",
+        "C2 changed after its review; send the new wording to an auditor."
+       ]
+      },
+      {
+       "ts": "2026-10-05T16:20:40Z",
+       "agent": "a4b9c1e7f3d2a0586",
+       "attempt": 3,
+       "reasons": [
+        "C1 cites url:arrow.apache.org/docs/python/timestamps.html#schema but you never fetched it.",
+        "C2 cites url:fastparquet.readthedocs.io/en/latest/details.html but you never fetched it.",
+        "C1 changed after its review; send the new wording to an auditor.",
+        "C2 changed after its review; send the new wording to an auditor."
+       ]
+      }
+     ],
      "files_written": [],
      "log": [
       {
@@ -1599,10 +1956,28 @@
        "text": "analyst → conductor:auditor T3 “Review P1/T3 claims”"
       },
       {
+       "ts": "2026-10-05T16:17:02Z",
+       "kind": "gate",
+       "agent": "a4b9c1e7f3d2a0586",
+       "text": "SubagentStop blocked (1st): evidence not observed for C1, C2"
+      },
+      {
+       "ts": "2026-10-05T16:18:40Z",
+       "kind": "gate",
+       "agent": "a4b9c1e7f3d2a0586",
+       "text": "SubagentStop blocked (2nd): evidence not observed; C1, C2 reworded after review"
+      },
+      {
        "ts": "2026-10-05T16:19:50Z",
        "kind": "verdict",
        "agent": "a7d5f3b1e9c0a2468",
        "text": "C1 verified · C2 verified"
+      },
+      {
+       "ts": "2026-10-05T16:20:40Z",
+       "kind": "gate",
+       "agent": "a4b9c1e7f3d2a0586",
+       "text": "SubagentStop escalated after 3 blocks (bookkeeping only) → review queue"
       },
       {
        "ts": "2026-10-05T16:20:44Z",
@@ -1657,7 +2032,7 @@
    "counts": {
     "tasks": 2,
     "agents_running": 0,
-    "open_human": 0
+    "open_human": 1
    }
   },
   {

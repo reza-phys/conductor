@@ -7,6 +7,9 @@
     conductor serve [--port N]    live dashboard on http://127.0.0.1:N
     conductor provenance REF      lineage of a claim (T1/C2, P2/T1/C2), task (T1, P2/T1), agent id, or file path
     conductor artifact [enable | url <URL>]   build the status page for a claude.ai Artifact (opt-in)
+    conductor reaudit TASK        ready-to-send review envelope with the task's final claims
+    conductor resolve TASK --accept "reason"  accept an escalated task (logged as a human decision)
+    conductor decide ID OPTION [--note …]     decide an open human-in-the-loop item (R-…, N-…)
 """
 from __future__ import annotations
 
@@ -100,13 +103,13 @@ def cmd_status(args) -> int:
                 node = next((x for x in agents if x["id"] == node["parent"]), None)
     print("orchestrator")
     walk("main", "")
-    open_items = [d for d in st["decisions"] if d["state"] == "open"]
-    if open_items or st["review_queue"]:
+    if st["review_queue"]:
         print("Needs you:")
-        for d in open_items:
-            print(f"  • [{d.get('task') or '-'}] {core.clip(d['q'], 120)}")
         for r in st["review_queue"]:
-            print(f"  • review [{r['task']}] {core.clip(r['reason'], 120)}")
+            rec = next((o["label"] for o in r["options"] if o.get("recommended")), None)
+            print(f"  • {r['id']}: {core.clip(r['title'], 100)}" + (f"  (suggested: {rec})" if rec else ""))
+            print(f"      {core.clip(r['problem'], 160)}")
+        print("    Decide: paste an option's reply from the dashboard, or run: conductor decide <id> <option>")
     if st["log"]:
         print("Recent:")
         for e in st["log"][: args.recent]:
@@ -168,6 +171,58 @@ def cmd_artifact(args) -> int:
     return 0
 
 
+def _tree(args):
+    from conductor.tree import Tree
+    state = _state(args)
+    return state, Tree(core.read_events(state))
+
+
+def _task(tree, ref: str) -> str:
+    keys = {a.get("task") for a in tree.agents.values() if a.get("task")} | set(tree.ledger)
+    keys = sorted(k for k in keys if k and not str(k).startswith("review:"))
+    hits = [k for k in keys if k == ref or k.endswith("/" + ref)]
+    if len(hits) != 1:
+        sys.exit(f"{'No' if not hits else 'Ambiguous'} task {ref}" + (f": {', '.join(hits)}" if hits else "") + ".")
+    return hits[0]
+
+
+def cmd_reaudit(args) -> int:
+    from conductor import hitl
+    _, tree = _tree(args)
+    env = hitl.reaudit_envelope(tree, _task(tree, args.task))
+    if not env:
+        sys.exit("No final claims recorded for that task.")
+    print(env)
+    return 0
+
+
+def cmd_resolve(args) -> int:
+    state, tree = _tree(args)
+    key = _task(tree, args.task)
+    core.append_event(state, {"event": "review_resolved", "agent": "human", "task": key,
+                              "summary": f"{key} accepted as done (CLI)",
+                              "data": {"task": key, "decision": "accept", "by": "human", "note": args.accept}})
+    print(f"{key} accepted as done" + (f" ({args.accept})" if args.accept else "") + ".")
+    render.write_outputs(state)
+    return 0
+
+
+def cmd_decide(args) -> int:
+    from conductor import hitl
+    state, tree = _tree(args)
+    open_items = hitl.decidable(tree, tree.agent_list())
+    try:
+        events, msg = hitl.decide(tree, open_items, args.id, args.option, args.option, args.note)
+    except KeyError:
+        ids = ", ".join(i["id"] for i in open_items) or "none"
+        sys.exit(f"No open item {args.id}. Open items: {ids}")
+    for ev in events:
+        core.append_event(state, {"event": ev["event"], "agent": "human", "summary": ev.get("summary"), "data": ev["data"]})
+    print(msg)
+    render.write_outputs(state)
+    return 0
+
+
 def cmd_render(args) -> int:
     state = _state(args)
     if args.loop:
@@ -197,6 +252,14 @@ def main(argv=None) -> int:
     p.add_argument("ref"); p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_provenance)
     p = sub.add_parser("artifact", help="build the claude.ai Artifact page (opt-in): artifact [enable | url <URL>]")
     p.add_argument("words", nargs="*"); p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_artifact)
+    p = sub.add_parser("reaudit", help="print a ready-to-send <conductor-review> envelope with a task's final claims")
+    p.add_argument("task"); p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_reaudit)
+    p = sub.add_parser("resolve", help="accept an escalated task as done (logged as a human decision)")
+    p.add_argument("task"); p.add_argument("--accept", metavar="REASON", default="", nargs="?")
+    p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_resolve)
+    p = sub.add_parser("decide", help="decide an open human-in-the-loop item: decide <id> <option-id> [--note …]")
+    p.add_argument("id"); p.add_argument("option"); p.add_argument("--note")
+    p.add_argument("--state", help=argparse.SUPPRESS); p.set_defaults(fn=cmd_decide)
     p = sub.add_parser("render"); p.add_argument("--loop", action="store_true"); p.add_argument("--state"); p.set_defaults(fn=cmd_render)
     p = sub.add_parser("serve"); p.add_argument("--state", help=argparse.SUPPRESS); p.add_argument("--port", type=int, default=8765); p.set_defaults(fn=cmd_serve)
     args = ap.parse_args(argv)

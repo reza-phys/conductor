@@ -1,7 +1,7 @@
 {
   "name": "conductor",
   "displayName": "Conductor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-agent orchestration harness for Claude Code: plans, nested dispatch, audit gates, provenance, and a live dashboard — enforced by hooks.",
   "author": {
     "name": "Reza Ebadi"

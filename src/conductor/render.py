@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from conductor import core, page, plans as plans_mod
+from conductor import core, hitl, page, plans as plans_mod
 from conductor.tree import MAIN, Tree, task_key
 
 
@@ -67,6 +67,13 @@ def build_status(state: Path) -> dict:
     agents = tree.agent_list()
     plans = plans_mod.load_plans(state)
     plan = plans_mod.active_plan(plans)
+    review_queue, decided = hitl.open_and_decided(tree, agents)  # before display states change below
+    for a in agents:  # an escalation that a later audit or a human resolved no longer reads as "unverified"
+        res = tree.task_resolution(a.get("task_key") or "") if a["state"] in ("unverified", "blocked") else None
+        if res and res.get("decision") in ("verified", "accept"):
+            how = "re-audit" if res["decision"] == "verified" else "accepted by human"
+            a["gate"]["result"] = f"{a['gate']['result'] or 'escalated'} → resolved ({how})"
+            a["state"] = "done"
     agents_by_id = {a["id"]: a for a in agents}
 
     # --- tasks of the active plan (project overview), keyed by plan-qualified key -------------------------------
@@ -100,34 +107,15 @@ def build_status(state: Path) -> dict:
         phases.append({**ph, "state": _phase_state([t["state"] for t in pts]), "tasks": [t["id"] for t in pts]})
 
     # --- human in the loop ------------------------------------------------------------------------------------------
-    decisions, review_queue = [], []
-    for i, e in enumerate(tree.hitl, 1):
-        qs = (e.get("data") or {}).get("questions") or []
-        q = "; ".join(x.get("question", "") for x in qs if isinstance(x, dict)) or "question"
-        ans = (e.get("data") or {}).get("answers")
-        decisions.append({"id": f"H{i}", "q": q, "state": "decided", "asked_by": "main", "ts": e["ts"],
-                          "session": e.get("session"),
-                          "resolution": core.clip(json.dumps(ans) if not isinstance(ans, str) else ans, 400)})
-    for a in agents:
-        needs = ((a.get("report") or {}).get("needs") or "").strip()
-        if a["state"] == "blocked" and needs and needs.lower() != "none":
-            decisions.insert(0, {"id": f"N-{a['id'][:6]}", "q": needs, "state": "open", "asked_by": a["id"],
-                                 "task": a["task"], "task_key": a.get("task_key"), "session": a.get("session"),
-                                 "ts": a["ended"]})
-        if a["gate"]["result"] == "escalated":
-            review_queue.append({"task": a["task"], "task_key": a.get("task_key"), "agent": a["id"], "state": "open",
-                                 "session": a.get("session"),
-                                 "reason": "gate escalated: " + "; ".join(a["gate"]["reasons"][-1:])})
+    decisions = sorted(hitl.decision_items(tree) + decided, key=lambda d: d.get("decided_ts") or "", reverse=True)
 
     # --- claims ------------------------------------------------------------------------------------------------------
     findings = []
     for key, led in tree.ledger.items():
         for cid, c in (led.get("final") or {}).items():
-            st = c.get("state") or "asserted"
-            if st in ("unreviewed", "asserted") and led.get("final_status") == "escalated":
-                st = "unverified"
-            vs = led["verdicts"].get(cid, [])
-            v = vs[-1] if vs else None
+            st, v = tree.claim_state(key, cid)  # latest independent verdict on the current wording
+            if st == "unreviewed":
+                st = "unverified" if led.get("final_status") == "escalated" else "asserted"
             note = f"by {_agent_label(tree, led.get('final_by'))}"
             if v:
                 note += f" · {v['verdict']} by {_agent_label(tree, v.get('by'))}: {v.get('evidence') or ''}"
@@ -148,7 +136,7 @@ def build_status(state: Path) -> dict:
     first_ask = next((m["data"]["text"] for m in reversed(tree.human_messages)
                       if tree.run.get("started") and m["ts"] >= tree.run["started"]), None) if tree.human_messages else None
     running = [a for a in agents if a["state"] == "running"]
-    open_human = [d for d in decisions if d["state"] == "open"] + review_queue
+    open_human = review_queue
     plan_sessions: dict[str, list[str]] = {}
     for d in tree.dispatches.values():
         pid = (d.get("plan") or "").split("@")[0]
@@ -235,8 +223,7 @@ def _sessions(cfg, tree: Tree, events, agents, plans, findings, decisions, revie
                           (e.get("agent") in ids or e.get("task") in (key, f"review:{key}"))][-lim:]
         other_log = [_log_row(tree, e) for e in evs if e.get("summary") and e.get("agent") not in claimed_agents
                      and not (e["event"] in ("dispatch", "claims_submitted") and e.get("task"))][-lim:]
-        open_items = [d for d in decisions if d["state"] == "open" and d.get("session") == sid] + \
-                     [r for r in review_queue if r.get("session") == sid]
+        open_items = [r for r in review_queue if (r.get("context") or {}).get("session") == sid]
         live = bool(tree.live and tree.run.get("session") == sid and not s.get("ended"))
         out.append({
             "id": sid, "short": sid[:6], "run": s.get("run"), "started": s.get("first"),

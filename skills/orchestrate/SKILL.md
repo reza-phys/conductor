@@ -60,6 +60,14 @@ criteria: <copied from the plan>
 - When you report to the human, **cite claim ids** for every factual statement drawn from workers, and label anything unverified explicitly. `/conductor:provenance T2/C1` shows the full lineage.
 - Do not re-do a worker's job yourself. If a result is insufficient, dispatch a follow-up task with sharper criteria.
 
+### When a worker escalated
+Escalation often comes from bookkeeping (an auditor still running, a reworded claim), not from bad claims. Each review item (`R-<task>`) shows the latest audit tally and suggests one of these:
+- **Re-audit:** dispatch `conductor:auditor` with the task's final claims *verbatim* (`conductor reaudit T2` prints the envelope). Use `for="P1/T2"` (or `for="T2" plan="P1"`) when you are not inside that plan. If every claim comes back verified, the task resolves to done by itself.
+- **Fix:** resume the worker with `SendMessage`. It gets a fresh gate budget, and the gate's reasons are put in front of your message.
+- **Accept or redo:** this is the human's call. Ask them, or let them paste a line from the dashboard.
+
+When the human pastes a line like `[Conductor HITL R-P1/T2] … Decision: …`, the hook records it and tells you the next step. Follow it, and don't ask the same question again.
+
 ## 4. Human in the loop
 Ask the human (AskUserQuestion, 2–4 concrete options, recommended first) when:
 - the goal or scope is ambiguous enough that plans would differ;

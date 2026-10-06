@@ -29,16 +29,19 @@ Common fields: `ts`, `event`, `session`, `agent` (`main` = orchestrator, otherwi
 | `observe_file` | PostToolUse(Read) | path, sha256 at read time |
 | `observe_search` | PostToolUse(Grep/Glob) | pattern, path |
 | `observe_source` | PostToolUse(WebFetch/WebSearch) | url or query |
-| `exec` | PostToolUse(Bash) | command, description, project files the command named |
+| `exec` | PostToolUse(Bash) | command, description, project files the command named, `urls` fetched (curl/wget), `writes` (cp/mv/tar -C/unzip -d/redirects) |
 | `observe_mcp` | PostToolUse(mcp__…) | tool, input (clipped), input and response hashes |
 | `handback` | PostToolUse(SubagentHandback) | the hand-back message (the agent's report) and its hash |
 | `produce_file` | PostToolUse(Write/Edit/…) | path, sha256 after write |
 | `write_denied` | PreToolUse(Write/Edit) | path (orchestrator or read-only agent) |
 | `claims_submitted` | PreToolUse(Agent) for a review | task, claims[] (text + evidence) |
 | `verdicts` | SubagentStop of an auditor | task, verdicts[] (id, verdict, evidence) |
-| `gate_block` | SubagentStop | reasons[], attempt |
+| `gate_block` | SubagentStop or PreToolUse(SubagentHandback) | reasons[], attempt, `transient` (a wait that does not count toward `max_blocks`), `at` |
+| `agent_resumed` | PreToolUse(SendMessage) | target agent; its gate budget restarts |
 | `agent_stop` | SubagentStop | report, claims[] with final state, output_path, output_sha256, gate (`passed`/`escalated`/`exempt`) |
 | `hitl` | PostToolUse(AskUserQuestion) | questions, answers |
+| `hitl_decision` | UserPromptSubmit (pasted line) or `conductor decide` | item id, option, decision label, note, by |
+| `review_resolved` | accept decision or `conductor resolve` | task, decision, by, note, item |
 | `commit_stamped` | PreToolUse(Bash) on `git commit` | trailers |
 
 Each agent's final message is also stored verbatim in `.conductor/outputs/<agent_id>.md`, and its hash is recorded in `agent_stop`.
@@ -69,7 +72,7 @@ Global id: `<task>/<Cn>` (e.g. `T1/C2`). **Plan-qualified ids:** internally a ta
 | `claim:<task>/<Cn>` | the ledger: that claim's latest verdict must be `verified` |
 | `hitl:<id>` | human answers logged by the orchestrator |
 
-Claim lifecycle: `submitted` (review envelope) → `verified | refuted | unverified` (auditor) → final state in `agent_stop`. A claim reworded after review counts as unreviewed. A worker that exhausts its gate attempts has its unreviewed claims marked `unverified`.
+Claim lifecycle: `submitted` (review envelope) → `verified | refuted | unverified` (auditor) → final wording in `agent_stop`. Each claim carries `text_sha`, the hash of its normalised wording, and each verdict records the wording it judged. A claim's state is **derived**, never frozen: it is the latest verdict, from an agent other than the worker, on the claim's current wording. Otherwise it is `unreviewed` (shown as `unverified` after an escalation) or `asserted` (review skipped). A later re-audit therefore updates the state of an escalated task's claims, and `conductor provenance` marks verdicts on an earlier wording as such.
 
 ## W3C PROV mapping
 

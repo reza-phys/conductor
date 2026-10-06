@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from conductor import cache, core, gate, protocol, render  # noqa: E402
+from conductor import cache, core, gate, hitl, protocol, render, shell  # noqa: E402
 from conductor.tree import MAIN, Tree, task_key  # noqa: E402
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -102,13 +102,35 @@ def on_user_prompt_submit(c: Ctx):
     note = text.lstrip().startswith(NOTIFICATION_PREFIXES)  # task notifications and sub-agent hand-backs, not the human
     c.emit("human_message", {"text": core.clip(text, 4000), "notification": note},
            summary=None if note else "human: " + text)
+    context: list[str] = []
+    if not note and hitl.PASTE_PREFIX in text:
+        context += _apply_hitl_pastes(c, text)
     sid = c.p.get("session_id")
     if sid and not (c.tree.sessions.get(sid) or {}).get("run"):
         # SessionStart ran before .conductor/ existed (e.g. /conductor:init mid-session): start the run and brief now
         c.emit("run_start", {"source": "late_init"}, run=f"R-{core.utcnow()[:10].replace('-', '')}-{sid[:6]}")
         if c.cfg["orchestrator"]["inject_protocol"]:
-            return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": _brief(c)}}
+            context.insert(0, _brief(c))
+    if context:
+        return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n\n".join(context)}}
     return None
+
+
+def _apply_hitl_pastes(c: Ctx, text: str) -> list[str]:
+    """A pasted '[Conductor HITL <id>] … Decision: …' line records the human's decision and tells the orchestrator
+    exactly what to do next (accept is recorded directly; re-audit gets a ready-made envelope)."""
+    open_items = hitl.decidable(c.tree, c.tree.agent_list())
+    out = []
+    for p in hitl.parse_paste(text):
+        try:
+            events, msg = hitl.decide(c.tree, open_items, p["id"], None, p["decision"], p["note"])
+        except KeyError:
+            out.append(f"[Conductor] No open human-in-the-loop item {p['id']} (already decided, or unknown).")
+            continue
+        for ev in events:
+            c.emit(ev["event"], ev["data"], summary=ev.get("summary"))
+        out.append(msg)
+    return out
 
 
 def on_stop(c: Ctx):
@@ -127,6 +149,8 @@ def on_pre_tool_use(c: Ctx):
         return _pre_agent(c, ti)
     if tool == HANDBACK:
         return _pre_handback(c, ti)
+    if tool == "SendMessage":
+        return _pre_send_message(c, ti)
     if tool == "Bash":
         return _guard_bash(c, ti) or _pre_bash(c, ti)
     if tool in WRITE_TOOLS and c.p.get("agent_type") in c.cfg["dispatch"]["read_only_types"]:
@@ -136,9 +160,7 @@ def on_pre_tool_use(c: Ctx):
     if tool in WRITE_TOOLS and c.agent == MAIN and not c.cfg["orchestrator"]["allow_project_edits"]:
         path = ti.get("file_path") or ti.get("notebook_path") or ""
         target = (c.root / path) if not os.path.isabs(path) else Path(path)
-        try:
-            target.resolve().relative_to(c.state.resolve())
-        except ValueError:
+        if _in_project_outside_state(c, target):
             c.emit("write_denied", {"path": c.rel(path), "tool": tool}, summary=f"orchestrator edit refused: {c.rel(path)}")
             return _deny(f"Conductor: the orchestrator only writes under {core.STATE_DIR}/ — dispatch a worker "
                          f"to change {c.rel(path)} (or set orchestrator.allow_project_edits in "
@@ -165,24 +187,29 @@ def _pre_bash(c: Ctx, ti: dict):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**ti, "command": new}}}
 
 
-_REDIRECT = re.compile(r"""(?<![<0-9&])(?:[0-9]?>>?|&>>?)\s*(?!&)("[^"]+"|'[^']+'|[^\s;|&<>()]+)""")
-_WRITE_CMD = re.compile(r"""(?:^|[;&|(]\s*|\s)(?:sudo\s+)?(tee(?:\s+-a)?|cp|mv|rm|rmdir|touch|mkdir|ln|install|truncate|dd)\s+([^;&|]*)""")
-_INPLACE = re.compile(r"""(?:^|[;&|(]\s*|\s)(?:sed|perl|gsed)\s+[^;&|]*?-[a-zA-Z]*i[^;&|]*""")
 _SAFE_TARGETS = ("/dev/null", "/dev/stdout", "/dev/stderr", "/tmp/", "/private/tmp/", "/var/folders/")
 
 
-def _bash_write_targets(cmd: str) -> list[str]:
-    """Paths an orchestrator Bash command visibly writes (redirects, tee, cp/mv/rm/touch/…; sed -i => '?')."""
-    targets = [m.strip("'\"") for m in _REDIRECT.findall(cmd)]
-    for verb, rest in _WRITE_CMD.findall(cmd):
-        words = [w for w in shlex.split(rest, posix=True) if not w.startswith("-")] if rest.strip() else []
-        if verb.startswith("tee") or verb in ("touch", "mkdir", "rm", "rmdir", "truncate"):
-            targets += words
-        elif words:
-            targets.append(words[-1])  # cp/mv/ln/install/dd: the destination
-    if _INPLACE.search(cmd):
-        targets.append("?")  # in-place edit of files we cannot reliably name
-    return targets
+def _bash_write_targets(cmd: str, extract: bool = False):
+    """Paths a Bash command visibly writes. extract=True: [(path, cwd)] for resolving relative paths."""
+    pairs = shell.write_targets(cmd)
+    return pairs if extract else [t for t, _ in pairs]
+
+
+def _resolve(c: Ctx, path: str, cwd: str = ".") -> Path:
+    base = Path(cwd) if os.path.isabs(cwd) else Path(c.p.get("cwd") or c.root) / cwd
+    path = os.path.expanduser(path)
+    return Path(path) if os.path.isabs(path) else base / path
+
+
+def _in_project_outside_state(c: Ctx, p: Path) -> bool:
+    """The orchestrator guard only covers the project itself, minus .conductor/ (memory dirs, /tmp etc. are not ours)."""
+    try:
+        r = p.resolve()
+    except OSError:
+        r = p
+    root, state = c.root.resolve(), c.state.resolve()
+    return (r == root or root in r.parents) and not (r == state or state in r.parents)
 
 
 def _guard_bash(c: Ctx, ti: dict):
@@ -191,24 +218,20 @@ def _guard_bash(c: Ctx, ti: dict):
         return None
     cmd = ti.get("command") or ""
     try:
-        targets = _bash_write_targets(cmd)
+        targets = _bash_write_targets(cmd, extract=True)
     except ValueError:  # unbalanced quotes: let it through rather than guess
         return None
-    state = str(c.state.resolve())
     bad = []
-    for t in targets:
+    for t, cwd in targets:
         if t == "?":
-            bad.append("in-place edit (sed/perl -i)")
+            if _in_project_outside_state(c, _resolve(c, ".", cwd)):
+                bad.append("in-place edit (sed/perl -i)")
             continue
         if t.startswith(_SAFE_TARGETS):
             continue
-        full = Path(t) if os.path.isabs(t) else (c.root / t)
-        try:
-            resolved = str(full.resolve())
-        except OSError:
-            resolved = str(full)
-        if not resolved.startswith(state):
-            bad.append(c.rel(resolved) or t)
+        full = _resolve(c, t, cwd)
+        if _in_project_outside_state(c, full):
+            bad.append(c.rel(str(full)) or t)
     if not bad:
         return None
     c.emit("write_denied", {"tool": "Bash", "targets": bad, "command": core.clip(cmd, 300)},
@@ -226,9 +249,15 @@ def _gate_eval(c: Ctx, a: dict, msg: str, background_tasks=None) -> dict:
     running = {t.get("id") for t in (background_tasks or [])
                if t.get("status") == "running" and t.get("id") in desc}
     running |= {d for d in desc if c.tree.agents[d]["state"] == "running"}
+    transient: list[str] = []
     if running:
-        reasons.append(f"{len(running)} of your sub-agents are still running ({', '.join(sorted(running))}). "
-                       "Wait for their results before reporting.")
+        transient.append(f"{len(running)} of your sub-agents are still running ({', '.join(sorted(running))}). "
+                         "Wait for their results before reporting.")
+    pending = sorted(k for k, x in c.tree.agents.items() if k not in running and x["state"] == "running"
+                     and x.get("review_for") and x["review_for"] == a.get("task"))
+    if pending:  # an auditor (possibly dispatched by the orchestrator) is still checking this task's claims
+        transient.append(f"Verdicts pending from auditor {', '.join(pending)}; wait for them before reporting.")
+    reasons += transient
     review_for = a.get("review_for")
     status = (report or {}).get("status")
     claims = _rel_claims(c, protocol.parse_claims((report or {}).get("claims")))
@@ -252,7 +281,22 @@ def _gate_eval(c: Ctx, a: dict, msg: str, background_tasks=None) -> dict:
                 if problems:
                     reasons += problems + ([protocol.REVIEW_HELP] if any("not been reviewed" in p or "changed" in p
                                                                           for p in problems) else [])
-    return {"reasons": reasons, "report": report, "claims": claims, "verdicts": verdicts, "states": states}
+    return {"reasons": reasons, "transient": transient, "report": report, "claims": claims, "verdicts": verdicts,
+            "states": states}
+
+
+def _should_block(c: Ctx, ev: dict) -> bool | None:
+    """None: pass. True/False: block, and whether the block is transient (not counted against gate.max_blocks).
+    Returns None also when the defect budget is spent: the caller then records the escalation."""
+    if not ev["reasons"]:
+        return None
+    gcfg = c.cfg["gate"]
+    defects = [r for r in ev["reasons"] if r not in ev["transient"]]
+    if not defects:
+        if c.tree.transient_blocks(c.agent) < gcfg["max_transient_blocks"]:
+            return True
+        return False if c.tree.gate_blocks(c.agent) < gcfg["max_blocks"] else None
+    return False if c.tree.gate_blocks(c.agent) < gcfg["max_blocks"] else None
 
 
 def _gated(c: Ctx, a: dict) -> bool:
@@ -265,13 +309,60 @@ def _pre_handback(c: Ctx, ti: dict):
     if c.agent == MAIN or not _gated(c, a):
         return None
     ev = _gate_eval(c, a, ti.get("message") or "")
-    blocks = c.tree.gate_blocks(c.agent)
-    if not ev["reasons"] or blocks >= c.cfg["gate"]["max_blocks"]:
+    transient = _should_block(c, ev)
+    if transient is None:
         return None  # pass, or out of attempts: SubagentStop records the outcome (escalated if still failing)
-    c.emit("gate_block", {"reasons": ev["reasons"], "attempt": blocks + 1, "at": "handback"},
-           summary=f"gate blocked hand-back (attempt {blocks + 1})")
-    return _deny(f"Conductor gate (attempt {blocks + 1}/{c.cfg['gate']['max_blocks']}): fix this, then hand back again:\n- "
-                 + "\n- ".join(ev["reasons"]))
+    return _deny(_record_block(c, ev, transient, at="handback") + "\nFix this, then hand back again.")
+
+
+def _pre_send_message(c: Ctx, ti: dict):
+    """Resuming a stopped agent: a fresh block budget, and (if it escalated) the reasons, so it can fix them."""
+    to = str(ti.get("to") or "").strip()
+    target = to if to in c.tree.agents else next((k for k in c.tree.agents if len(to) >= 6 and k.startswith(to)), None)
+    a = c.tree.agents.get(target or "")
+    if not a or a["state"] == "running":
+        return None
+    c.emit("agent_resumed", {"target": target, "previous": a["state"], "gate": a.get("gate_result")},
+           summary=f"resumed {(a.get('type') or 'agent').split(':')[-1]}·{target[:6]}")
+    reasons = (c.tree.ledger.get(a.get("task") or "") or {}).get("final_reasons") or a.get("gate_reasons", [])[-1:]
+    if a.get("gate_result") != "escalated" or not reasons:
+        return None
+    note = ("[Conductor] Your last hand-back was recorded as unverified because the gate found:\n- "
+            + "\n- ".join(reasons) + "\nYou have a fresh set of gate attempts; fix these before you report again.\n\n")
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                   "updatedInput": {**ti, "message": note + str(ti.get("message") or "")}}}
+
+
+def _resolve_review_key(c: Ctx, review: dict, caller_plan: str | None) -> tuple[str | None, str | None]:
+    """<conductor-review for="T2"|"P1/T2" [plan="P1@v1"]> -> (task key, error). Works from any dispatcher."""
+    target = (review.get("for") or "").strip()
+    if not target:
+        return None, None
+    known = {k for k in c.tree.ledger} | {x.get("task") for x in c.tree.agents.values() if x.get("task")} | \
+        {task_key(d.get("plan"), d["task"]) for d in c.tree.dispatches.values() if d.get("task") and not d.get("denied")}
+    known = {k for k in known if k and not str(k).startswith("review:")}
+    candidates = [target, task_key(review.get("plan"), target), task_key(caller_plan, target)]
+    for k in candidates:
+        if k and k in known:
+            return k, None
+    hits = sorted(k for k in known if k.endswith("/" + target))
+    if len(hits) == 1:
+        return hits[0], None
+    if len(hits) > 1:
+        return None, (f'Conductor: review refused — "{target}" exists in several plans ({", ".join(hits)}). '
+                      f'Use for="{hits[-1]}" (or add plan="…").')
+    return task_key(review.get("plan") or caller_plan, target), None
+
+
+def _record_block(c: Ctx, ev: dict, transient: bool, at: str | None = None) -> str:
+    gcfg = c.cfg["gate"]
+    n = c.tree.gate_blocks(c.agent) + (0 if transient else 1)
+    c.emit("gate_block", {"reasons": ev["reasons"], "attempt": n, "transient": transient, **({"at": at} if at else {})},
+           summary=("gate: waiting (not counted)" if transient else f"gate blocked (attempt {n})")
+           + (" at hand-back" if at else ""))
+    head = ("Conductor gate: not yet (this wait does not use up an attempt)" if transient
+            else f"Conductor gate (attempt {n}/{gcfg['max_blocks']})")
+    return f"{head}:\n- " + "\n- ".join(ev["reasons"])
 
 
 def _pre_agent(c: Ctx, ti: dict):
@@ -297,14 +388,18 @@ def _pre_agent(c: Ctx, ti: dict):
     if c.cfg["ledger"]["store_prompts"]:
         data["prompt"] = core.clip(prompt, c.cfg["ledger"]["prompt_clip"])
     review_claims = _rel_claims(c, protocol.parse_claims(review.get("claims"))) if review else []
+    review_key, review_err = _resolve_review_key(c, review, caller_plan) if review else (None, None)
     if review:
-        data.update(review_for=review.get("for"), parent_task=parent_task, plan=caller_plan)
+        # review_for is stored qualified ("P1/T2"); the tree's task_key() leaves an already-qualified id unchanged
+        data.update(review_for=review_key, parent_task=parent_task, plan=None)
 
     reason = None
     if dcfg["enforce_envelope"] and not (task or review or exempt):
         reason = "Conductor: dispatch refused — no task envelope.\n" + protocol.ENVELOPE_HELP
     elif skip_review and not c.cfg["gate"]["allow_review_skip"]:
         reason = 'Conductor: dispatch refused — this project does not allow review="skip"; remove it from the envelope.'
+    elif review_err:
+        reason = review_err
     elif review and not review_claims:
         reason = "Conductor: review refused — the review envelope lists no claims.\n" + protocol.REVIEW_HELP
     elif depth >= dcfg["max_depth"] and not is_auditor:
@@ -316,7 +411,7 @@ def _pre_agent(c: Ctx, ti: dict):
         return _deny(reason)
 
     if review_claims:
-        c.emit("claims_submitted", {"task": task_key(caller_plan, review.get("for")), "claims": review_claims,
+        c.emit("claims_submitted", {"task": review_key, "claims": review_claims,
                                     "tool_use_id": c.p.get("tool_use_id")},
                summary=f"submitted {len(review_claims)} claims of {review.get('for')} for review")
     label = task.get("id") if task else (f"review {review.get('for')}" if review else "untracked")
@@ -347,7 +442,8 @@ def _tool_summary(c: Ctx, tool: str, ti: dict) -> tuple[str, dict, str]:
         return "observe_source", {"query": ti.get("query")}, f"WebSearch {core.clip(ti.get('query'), 80)}"
     if tool == "Bash":
         cmd = ti.get("command") or ""
-        return "exec", {"command": core.clip(cmd, 1000), "description": ti.get("description"), "files": _named_files(c, cmd)}, \
+        return "exec", {"command": core.clip(cmd, 1000), "description": ti.get("description"), "files": _named_files(c, cmd),
+                        "urls": _fetched_urls(cmd), "writes": _written_files(c, cmd)}, \
             f"Bash: {core.clip(ti.get('description') or cmd, 100)}"
     if tool.startswith("mcp__"):
         inp = json.dumps(ti, sort_keys=True, ensure_ascii=False)
@@ -360,6 +456,40 @@ def _tool_summary(c: Ctx, tool: str, ti: dict) -> tuple[str, dict, str]:
         return "produce_file", {"path": c.rel(path), "tool": tool, "sha256": core.sha256_file(path) if path else None}, \
             f"{tool} {c.rel(path)}"
     return "tool", {"tool": tool}, tool
+
+
+_URL = re.compile(r"""https?://[^\s'"<>|;)]+""")
+_FETCHERS = re.compile(r"(?:^|[\s;&|(])(?:curl|wget|gh\s+api|http|xh|aria2c)\b")
+
+
+def _fetched_urls(cmd: str) -> list[str]:
+    """URLs a shell command fetched (curl, wget, gh api…): the same kind of observation as a WebFetch."""
+    return sorted({u.rstrip(".,") for u in _URL.findall(cmd)}) if _FETCHERS.search(cmd) else []
+
+
+def _written_files(c: Ctx, cmd: str, limit: int = 50) -> list[str]:
+    """Project files a shell command created or changed (redirects, cp/mv, tar -C, unzip -d, git clone…), as they
+    exist after it ran. Directories expand to the files inside them (bounded)."""
+    try:
+        targets = _bash_write_targets(cmd, extract=True)
+    except ValueError:
+        return []
+    out: list[str] = []
+    for t, cwd in targets:
+        if t in ("?",) or t.startswith(_SAFE_TARGETS):
+            continue
+        p = _resolve(c, t, cwd)
+        try:
+            paths = [p] if p.is_file() else ([q for q in p.rglob("*") if q.is_file()][:limit] if p.is_dir() else [])
+        except OSError:
+            continue
+        for q in paths:
+            r = c.rel(str(q))
+            if r and not os.path.isabs(r) and r not in out:
+                out.append(r)
+        if len(out) >= limit:
+            break
+    return out[:limit]
 
 
 def _named_files(c: Ctx, cmd: str, limit: int = 50) -> list[str]:
@@ -497,12 +627,10 @@ def on_subagent_stop(c: Ctx):
     stop_data["claims"] = [{**cl, "state": states.get(cl["id"], "asserted")} for cl in claims] if not review_for else None
 
     if reasons:
-        blocks = c.tree.gate_blocks(c.agent)
+        transient = _should_block(c, ev)
         # After a hand-back the agent has ended: a block here would never reach it (the gate ran at hand-back time).
-        if blocks < gcfg["max_blocks"] and not handback:
-            c.emit("gate_block", {"reasons": reasons, "attempt": blocks + 1}, summary=f"gate blocked (attempt {blocks + 1})")
-            return {"decision": "block",
-                    "reason": f"Conductor gate (attempt {blocks + 1}/{gcfg['max_blocks']}):\n- " + "\n- ".join(reasons)}
+        if transient is not None and not handback:
+            return {"decision": "block", "reason": _record_block(c, ev, transient)}
         verdict_note = "escalated"
     else:
         verdict_note = "passed"

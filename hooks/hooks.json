@@ -47,7 +47,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Bash|Write|Edit|MultiEdit|NotebookEdit|SubagentHandback",
+        "matcher": "Agent|Bash|Write|Edit|MultiEdit|NotebookEdit|SubagentHandback|SendMessage",
         "hooks": [
           {
             "type": "command",

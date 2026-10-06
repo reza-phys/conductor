@@ -333,19 +333,49 @@ a.cd-id { color: var(--cd-link); }
 .cd-reasons li::before { content: "– "; color: var(--cd-muted); }
 
 /* HITL */
-.cd-dec { padding: 12px 0; border-bottom: 1px solid var(--cd-line); }
-.cd-dec:first-child { padding-top: 2px; }
-.cd-dec-q { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-weight: 600; }
-.cd-dec-meta { font-size: 0.82rem; color: var(--cd-muted); margin-top: 2px; }
-.cd-explain { margin: 8px 0 0; max-width: 75ch; }
+.cd-hlist { display: grid; gap: 10px; }
+.cd-hitem { padding: 12px 14px; border: 1px solid var(--cd-line); border-radius: 10px; background: var(--cd-card); min-width: 0; }
+.cd-hitem[data-cd-state="open"] { border-left: 3px solid var(--cd-open-fg); }
+.cd-hitem-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.cd-hitem-head .cd-id { color: var(--cd-fg); }
+.cd-hitem-title { flex: 1 1 220px; min-width: 0; font-weight: 600; }
+.cd-problem { margin: 6px 0 0; max-width: 75ch; }
+.cd-ctx { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 4px; font-size: 0.82rem; color: var(--cd-muted); }
+.cd-ctx > * + *::before { content: "·"; display: inline-block; margin-right: 6px; color: var(--cd-muted); text-decoration: none; }
+.cd-cats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.cd-cat {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 0 7px; border: 1px solid var(--cd-line); border-radius: 999px;
+  font-size: 0.75rem; color: var(--cd-muted); background: var(--cd-soft); white-space: nowrap;
+}
+.cd-cat strong { color: var(--cd-fg); font-variant-numeric: tabular-nums; }
 .cd-opts { margin-top: 8px; display: grid; gap: 6px; }
 .cd-opt {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
-  padding: 8px 10px; border: 1px solid var(--cd-line); border-radius: 8px; background: var(--cd-card);
+  padding: 7px 10px; border: 1px solid var(--cd-line); border-radius: 8px; background: var(--cd-card);
 }
+.cd-opt[data-rec] { border-color: var(--cd-done-fg); }
 .cd-opt-text { flex: 1 1 220px; min-width: 0; }
+.cd-opt-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-weight: 600; }
 .cd-opt-desc { display: block; color: var(--cd-muted); font-size: 0.85rem; }
-.cd-resolution { margin-top: 6px; font-size: 0.92rem; }
+.cd-copy { flex: none; min-width: 5.5em; }
+.cd-why { margin: 6px 0 0; font-size: 0.85rem; color: var(--cd-muted); max-width: 75ch; }
+.cd-hdet { margin-top: 8px; }
+.cd-hdet > summary { cursor: pointer; color: var(--cd-link); font-size: 0.85rem; padding: 2px 0; }
+.cd-hdet .cd-prompt-text { max-height: 16rem; overflow: auto; }
+.cd-hdec { padding: 0; }
+.cd-hdec > summary {
+  list-style: none; cursor: pointer; padding: 8px 12px; border-radius: 10px;
+  display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 6px;
+}
+.cd-hdec > summary::-webkit-details-marker { display: none; }
+.cd-hdec > summary:hover { background: var(--cd-soft); }
+.cd-hdec[open] > summary .cd-caret { transform: rotate(90deg); }
+.cd-hdec .cd-caret { height: 1.5rem; line-height: 1.5rem; }
+.cd-hrec { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.cd-hrec-text { flex: 1 1 220px; min-width: 0; }
+.cd-hrec time { font-family: var(--cd-mono); font-size: 0.8rem; color: var(--cd-muted); white-space: nowrap; }
+.cd-hdec-body { padding: 0 14px 12px 32px; }
+.cd-hdec-body .cd-hitem-head { margin-top: 2px; }
 
 /* log */
 .cd-log li {
@@ -410,6 +440,9 @@ a.cd-id { color: var(--cd-link); }
   .cd-log li > span:last-child { grid-column: 1 / -1; }
   .cd-kv { grid-template-columns: minmax(0, 1fr); }
   .cd-kv dd { margin-bottom: 6px; }
+  .cd-hitem { padding: 10px 11px; }
+  .cd-hdec > summary { padding: 8px 6px; }
+  .cd-hdec-body { padding: 0 8px 10px 26px; }
 }
 </style>
 </head>
@@ -668,23 +701,34 @@ a.cd-id { color: var(--cd-link); }
     var s = S.summary || {};
     var num = function (v, d) { return typeof v === 'number' ? v : d; };
     var cnt = function (xs, st) { return xs.filter(function (x) { return x.state === st; }).length; };
-    var openDec = cnt(decisions, 'open'), openRev = cnt(review, 'open');
     var sessions = arr(S.sessions).filter(function (x) { return x && (x.short || x.id); });
     var sessBy = {};
     sessions.forEach(function (x) { if (x.id) sessBy[x.id] = x; });
     sessions.forEach(function (x) { if (!sessBy[sShort(x)]) sessBy[sShort(x)] = x; });
+    // HITL: open = review_queue items not decided + any decision still open; decided = the rest.
+    var hItems = review.map(function (x) { return hitlNorm(x, 'review'); })
+      .concat(decisions.map(function (x) { return hitlNorm(x, 'decision'); }));
+    var hOpen = hItems.filter(function (x) { return x.open; });
+    var hDecided = decisions.map(function (x) { return hitlNorm(x, 'decision'); }).filter(function (x) { return !x.open; })
+      .concat(review.map(function (x) { return hitlNorm(x, 'review'); }).filter(function (x) { return !x.open; }));
+    var hasLists = Array.isArray(S.review_queue) || Array.isArray(S.decisions);
+    var openBySess = {};
+    hOpen.forEach(function (x) { var ss = sessBy[x.ctx.session]; if (ss) openBySess[sShort(ss)] = (openBySess[sShort(ss)] || 0) + 1; });
     var plans = arr(S.plans);
     var active = plans.filter(function (p) { return p && p.status === 'active'; })[0] || null;
     return {
       sessions: sessions, sessBy: sessBy, plans: plans, activePlan: active,
       agents: agents, phases: phases, tasks: tasks, decisions: decisions, review: review, byId: byId,
+      hitl: { open: hOpen, decided: hDecided, bySess: openBySess,
+        // per-session counts come from the items only when every open item names a known session
+        perSess: hasLists && hOpen.every(function (x) { return !!sessBy[x.ctx.session]; }) },
       sum: {
         phases_done: num(s.phases_done, cnt(phases, 'done')),
         phases_total: num(s.phases_total, phases.length),
         agents_running: num(s.agents_running, agents.filter(isAlive).length),
         agents_done: num(s.agents_done, cnt(agents, 'done')),
         agents_total: num(s.agents_total, agents.length),
-        open_human: num(s.open_human, openDec + openRev),
+        open_human: hasLists ? hOpen.length : num(s.open_human, 0),   // only items that still need the human
         unverified: num(s.unverified, cnt(agents, 'unverified'))
       }
     };
@@ -747,7 +791,7 @@ a.cd-id { color: var(--cd-link); }
       h('a', { class: 'cd-card', href: '#hitl', 'data-attn': m.open_human > 0 ? '1' : null },
         h('div', { class: 'cd-card-label' }, 'Open items for you'),
         h('div', { class: 'cd-card-value' }, m.open_human),
-        h('div', { class: 'cd-card-note' }, m.open_human ? 'Go to decisions →' : 'Nothing waiting'))));
+        h('div', { class: 'cd-card-note' }, m.open_human ? 'Go to open items →' : 'Nothing waiting'))));
 
     return section('current', 'Current state', null, parts);
   }
@@ -937,48 +981,132 @@ a.cd-id { color: var(--cd-link); }
     return section(opts.id || 'agents', opts.title || 'Agents', filterBar(sec, states, 'agents'), content);
   }
 
+  // ---------- human-in-the-loop items (schema 2; schema-1 fields are read as a fallback) ----------
+  function hitlNorm(x, from) {
+    x = x && typeof x === 'object' ? x : {};
+    var c = x.context && typeof x.context === 'object' ? x.context : {};
+    var id = str(x.id) || (x.task ? 'R-' + x.task : '');
+    var decision = str(x.decision != null ? x.decision : x.resolution);
+    var state = str(x.state) || (from === 'review' ? 'open' : (decision ? 'decided' : 'open'));
+    return {
+      id: id, state: state, open: state !== 'decided',
+      kind: str(x.kind) || (from === 'review' ? (/^N-/.test(id) ? 'needs' : 'review') : 'decision'),
+      title: str(x.title || x.q) || (x.task ? 'Review ' + x.task : id || 'Item'),
+      problem: str(x.problem || x.explain || x.reason),
+      ctx: { task: str(c.task || x.task), agent: str(c.agent || x.agent || x.asked_by), claims: str(c.claims),
+        since: str(c.since || x.ts), session: str(c.session) },
+      categories: arr(x.categories), options: arr(x.options), suggested: str(x.suggested), why: str(x.why_suggested),
+      details: str(x.details), decision: decision, note: str(x.note), by: str(x.decided_by), dts: str(x.decided_ts),
+      record: str(x.record)
+    };
+  }
+  function hitlCount(D, s) {   // open items of one session
+    if (D && D.hitl.perSess) return D.hitl.bySess[sShort(s)] || 0;
+    var c = s.counts || {};
+    return typeof c.open_human === 'number' ? c.open_human : 0;
+  }
+  function hitlPaste(it, o) {
+    return str(o.paste) || '[Conductor HITL ' + it.id + '] Problem: ' + it.title + '. Decision: ' + str(o.label || o.id) + '.';
+  }
+  function hitlCtx(D, it) {
+    var c = it.ctx, out = [];
+    var sess = c.session ? D.sessBy[c.session] : null;
+    if (c.task) {
+      var href = sess && findTask(sess, c.task) ? hrefTask(sShort(sess), c.task) : null;
+      out.push(href ? h('a', { class: 'cd-mono', href: href }, keyLabel(c.task)) : h('span', { class: 'cd-mono' }, keyLabel(c.task)));
+    }
+    if (c.claims) out.push(h('span', null, c.claims));
+    if (c.since && parseTs(c.since) != null) {
+      out.push(h('span', null, 'raised ', h('time', { datetime: c.since, title: fmtDateTime(c.since), 'data-cd-ago': c.since }, fmtAgo(c.since))));
+    }
+    if (sess) out.push(h('a', { href: hrefSession(sShort(sess)) }, 'session ' + sShort(sess)));
+    if (!it.open && it.by) out.push(h('span', null, 'decided by ' + it.by));
+    return out.length ? h('div', { class: 'cd-ctx' }, out) : null;
+  }
+  function hitlBody(D, it, sec) {
+    var open = it.open;
+    var opts = it.options.map(function (o, i) {
+      o = o && typeof o === 'object' ? o : { label: str(o) };
+      var label = str(o.label || o.id);
+      var rec = !!o.recommended || (!!it.suggested && str(o.id) === it.suggested);
+      var chosen = !open && it.decision && label === it.decision;
+      return h('div', { class: 'cd-opt', 'data-rec': rec ? '' : null },
+        h('span', { class: 'cd-opt-text' },
+          h('span', { class: 'cd-opt-label' }, h('span', null, label),
+            rec ? h('span', { class: 'cd-chip', 'data-st': 'done' }, 'Recommended') : null,
+            chosen ? h('span', { class: 'cd-chip', 'data-st': 'decided' }, 'Chosen') : null),
+          (o.consequence || o.description) ? h('span', { class: 'cd-opt-desc' }, str(o.consequence || o.description)) : null),
+        open ? h('button', { type: 'button', class: 'cd-btn cd-copy', 'data-cd-copy': hitlPaste(it, o),
+          'data-cd-fkey': 'cp:' + sec + ':' + it.id + ':' + i, 'aria-label': 'Copy reply: ' + label }, 'Copy') : null);
+    });
+    return [
+      it.problem ? h('p', { class: 'cd-problem' }, it.problem) : null,
+      hitlCtx(D, it),
+      it.categories.length ? h('div', { class: 'cd-cats', role: 'list', 'aria-label': 'Reasons' }, it.categories.map(function (c) {
+        return h('span', { class: 'cd-cat', role: 'listitem' }, str(c && c.label), c && c.count != null ? h('strong', null, str(c.count)) : null);
+      })) : null,
+      opts.length ? h('div', { class: 'cd-opts' }, opts) : null,
+      it.why ? h('p', { class: 'cd-why' }, it.why) : null,
+      !open && it.note ? h('p', { class: 'cd-why' }, 'Note: ' + it.note) : null,
+      it.details ? h('details', { class: 'cd-hdet', 'data-key': 'hdet:' + sec + ':' + it.id },
+        h('summary', null, 'Details'), h('div', { class: 'cd-prompt-text' }, it.details)) : null
+    ];
+  }
+  function hitlHead(it) {
+    return h('div', { class: 'cd-hitem-head' }, chip(it.state), h('span', { class: 'cd-kind' }, it.kind),
+      it.id ? h('span', { class: 'cd-id' }, it.id) : null, h('span', { class: 'cd-hitem-title' }, it.title));
+  }
+  function hitlCard(D, it, sec) {
+    var opts = it.options.map(function (o) { return o && typeof o === 'object' ? [o.label, o.consequence, o.description].join(' ') : str(o); }).join(' ');
+    var cats = it.categories.map(function (c) { return str(c && c.label); }).join(' ');
+    var full = norm([it.id, it.kind, it.state, it.title, it.problem, it.ctx.task, it.ctx.claims, it.ctx.agent, cats, opts,
+      it.why, it.decision, it.note, it.by, it.record, it.details]);
+    var anchor = 'h:' + sec + ':' + it.id;
+    if (it.open) {
+      return h('article', rowAttrs(sec, it.state, full, { class: 'cd-hitem', 'data-cd-anchor': anchor }), hitlHead(it), hitlBody(D, it, sec));
+    }
+    var line = it.record || [it.id, it.title, 'Decided: ' + (it.decision || '—')].filter(Boolean).join(' · ');
+    var when = it.dts || it.ctx.since;
+    var sumText = [it.id, it.kind, it.state, line, it.decision];
+    return h('details', rowAttrs(sec, it.state, full, { class: 'cd-hitem cd-hdec', 'data-key': 'hd:' + sec + ':' + it.id,
+      'data-cd-qs': norm(sumText), 'data-cd-anchor': anchor }),
+      h('summary', { 'data-cd-fkey': 'hd:' + sec + ':' + it.id },
+        h('span', { class: 'cd-caret', 'aria-hidden': 'true' }, '▶'),
+        h('span', { class: 'cd-hrec' }, chip(it.state), h('span', { class: 'cd-kind' }, it.kind),
+          h('span', { class: 'cd-hrec-text' }, line),
+          when && parseTs(when) != null ? h('time', { datetime: when, title: fmtDateTime(when) }, fmtShort(when)) : null)),
+      h('div', { class: 'cd-hdec-body' }, h('div', { class: 'cd-hitem-head' }, h('span', { class: 'cd-hitem-title' }, it.title)), hitlBody(D, it, sec)));
+  }
+
   function secHitl(D) {
-    var decs = D.decisions.slice().sort(function (a, b) {
-      var oa = a.state === 'open' ? 0 : 1, ob = b.state === 'open' ? 0 : 1;
-      if (oa !== ob) return oa - ob;
-      return str(b.ts).localeCompare(str(a.ts));
-    });
-    var decRows = decs.map(function (d) {
-      var isOpen = d.state !== 'decided';
-      var opts = arr(d.options);
-      var meta = [];
-      if (d.asked_by) meta.push('asked by ' + agentLabel(d.asked_by, D.byId));
-      if (d.task) meta.push(str(d.task));
-      if (d.ts) meta.push(fmtDateTime(d.ts));
-      return h('div', rowAttrs('hitl', d.state, norm([d.id, d.q, d.explain, d.resolution, d.task, d.state,
-        opts.map(function (o) { return [o.label, o.description].join(' '); }).join(' ')]), { class: 'cd-dec', 'data-cd-anchor': 'd:' + d.id }),
-        h('div', { class: 'cd-dec-q' }, chip(d.state), d.id ? h('span', { class: 'cd-id' }, str(d.id)) : null, h('span', null, str(d.q))),
-        meta.length ? h('div', { class: 'cd-dec-meta' }, meta.join(' · ')) : null,
-        isOpen && d.explain ? h('p', { class: 'cd-explain' }, str(d.explain)) : null,
-        isOpen && opts.length ? h('div', { class: 'cd-opts' }, opts.map(function (o, i) {
-          var paste = str(o.paste || o.label);
-          return h('div', { class: 'cd-opt' },
-            h('span', { class: 'cd-opt-text' }, h('strong', null, str(o.label || o.id)),
-              o.description ? h('span', { class: 'cd-opt-desc' }, str(o.description)) : null),
-            h('button', { type: 'button', class: 'cd-btn', 'data-cd-copy': paste, 'data-cd-fkey': 'cp:' + d.id + ':' + i,
-              'aria-label': 'Copy reply: ' + paste }, 'Copy reply'));
-        })) : null,
-        !isOpen ? h('div', { class: 'cd-resolution' }, 'Chosen: ', h('strong', null, str(d.resolution || '—'))) : null);
-    });
-    var revRows = D.review.map(function (r) {
-      return h('tr', rowAttrs('hitl', r.state, norm([r.task, r.agent, agentLabel(r.agent, D.byId), r.reason, r.state])),
-        h('td', { class: 'cd-nw cd-mono' }, str(r.task)),
-        h('td', { class: 'cd-nw' }, agentLabel(r.agent, D.byId)),
-        h('td', null, str(r.reason)),
-        h('td', null, chip(r.state)));
-    });
-    var states = decs.map(function (d) { return d.state; }).concat(D.review.map(function (r) { return r.state; }));
+    var open = D.hitl.open, decided = D.hitl.decided;
+    var states = open.concat(decided).map(function (x) { return x.state; });
     var empty = (S.empty_states && S.empty_states.decisions) || 'Nothing needs you right now.';
-    var blocks = [h('div', { class: 'cd-block' }, h('h3', null, 'Decisions'),
-      decRows.length ? listWrap(decRows) : h('p', { class: 'cd-empty' }, str(empty)))];
-    if (revRows.length) blocks.push(h('div', { class: 'cd-block' }, h('h3', null, 'Review queue'),
-      listWrap(table(['Task', 'Agent', 'Reason', 'State'], revRows))));
+    var blocks = [
+      h('div', { class: 'cd-block' },
+        h('div', { class: 'cd-sub-head' }, h('h3', null, 'Open items'),
+          open.length ? h('span', { class: 'cd-badge', 'aria-label': open.length + ' open' }, open.length) : null),
+        open.length ? listWrap(h('div', { class: 'cd-hlist' }, open.map(function (x) { return hitlCard(D, x, 'hitl'); })))
+          : h('p', { class: 'cd-empty' }, str(empty))),
+      h('div', { class: 'cd-block' }, h('h3', null, 'Decisions'),
+        decided.length ? listWrap(h('div', { class: 'cd-hlist' }, decided.map(function (x) { return hitlCard(D, x, 'hitl'); })))
+          : h('p', { class: 'cd-empty' }, 'No decisions recorded yet.'))
+    ];
     return section('hitl', 'Human-in-the-loop', filterBar('hitl', states, 'human-in-the-loop items'), blocks);
+  }
+
+  // review / needs items (open first, then decided) whose context names this task
+  function taskHitl(D, s, t) {
+    return D.hitl.open.concat(D.hitl.decided).filter(function (x) {
+      return x.kind !== 'decision' && x.ctx.task === t.key && (!x.ctx.session || !D.sessBy[x.ctx.session] || D.sessBy[x.ctx.session] === s);
+    });
+  }
+  function secTaskHitl(D, s, t) {
+    var items = taskHitl(D, s, t);
+    if (!items.length) return null;
+    var sec = 'thitl:' + sShort(s) + ':' + t.key;
+    return section('hitl', 'Human-in-the-loop', filterBar(sec, items.map(function (x) { return x.state; }), 'human-in-the-loop items'),
+      listWrap(h('div', { class: 'cd-hlist' }, items.map(function (x) { return hitlCard(D, x, sec); }))));
   }
 
   function logLi(e, D, sec, by, i) {
@@ -1021,12 +1149,13 @@ a.cd-id { color: var(--cd-link); }
   }
 
   // ---------- project overview: plans + recent sessions ----------
-  function sessCounts(s) {
+  function sessCounts(s, D) {
     var c = s.counts || {}, out = [];
     var nt = typeof c.tasks === 'number' ? c.tasks : arr(s.tasks).length;
     out.push(h('span', null, nt + ' task' + (nt === 1 ? '' : 's')));
     if (c.agents_running) out.push(h('span', null, c.agents_running + ' running'));
-    if (c.open_human) out.push(h('span', { class: 'cd-badge', title: c.open_human + ' item(s) need you' }, c.open_human + ' need' + (c.open_human === 1 ? 's' : '') + ' you'));
+    var oh = hitlCount(D, s);
+    if (oh) out.push(h('span', { class: 'cd-badge', title: oh + ' open item' + (oh === 1 ? '' : 's') + ' for you' }, oh + ' need' + (oh === 1 ? 's' : '') + ' you'));
     return out;
   }
   function sessWhen(s) {
@@ -1053,7 +1182,7 @@ a.cd-id { color: var(--cd-link); }
       return h('li', rowAttrs('sessions', s.live ? 'running' : 'done', norm([sShort(s), s.run, s.title, s.started, s.ended]), { 'data-cd-anchor': 'ss:' + sShort(s) }),
         h('span', { class: 'cd-grow' }, h('a', { href: hrefSession(sShort(s)) }, sessTitle(s)),
           h('span', { class: 'cd-note' }, sessWhen(s), ' · ', s.run ? h('span', { class: 'cd-mono' }, str(s.run)) : 'no run id')),
-        h('span', { class: 'cd-sess-counts' }, sessCounts(s)));
+        h('span', { class: 'cd-sess-counts' }, sessCounts(s, D)));
     });
     return section('history', 'Plans & sessions', null, h('div', { class: 'cd-grid2' },
       h('div', null, h('h3', null, 'Plans'),
@@ -1073,13 +1202,13 @@ a.cd-id { color: var(--cd-link); }
     return h('dl', { class: 'cd-kv' }, kv);
   }
 
-  function secSessionInfo(s) {
+  function secSessionInfo(D, s) {
     return section('session', 'Session', null, kvList([
       ['Session id', h('span', { class: 'cd-mono' }, str(s.id))],
       ['Run', s.run ? h('span', { class: 'cd-mono' }, str(s.run)) : h('span', { class: 'cd-muted' }, 'none — Conductor was initialised mid-session; times are the first and last events seen')],
       ['Started', s.started ? fmtDateTime(s.started) : null],
       ['Ended', s.live ? h('span', { class: 'cd-nav-live' }, h('span', { class: 'cd-live-dot', 'aria-hidden': 'true' }), 'live') : (s.ended ? fmtDateTime(s.ended) : '—')],
-      ['Counts', h('span', { class: 'cd-sess-counts' }, sessCounts(s))]
+      ['Counts', h('span', { class: 'cd-sess-counts' }, sessCounts(s, D))]
     ]));
   }
 
@@ -1140,7 +1269,7 @@ a.cd-id { color: var(--cd-link); }
     return section('task', 'Task', null, parts);
   }
 
-  function secTaskGates(D, t, agents) {
+  function secTaskGates(D, s, t, agents) {
     var rows = arr(t.gates).map(function (g, i) {
       var who = agentLabel(g.agent, D.byId);
       return h('li', rowAttrs('tgates', 'blocked', norm([g.ts, who, g.agent, 'attempt ' + g.attempt, arr(g.reasons).join(' ')]), { 'data-cd-anchor': 'g:' + i }),
@@ -1150,10 +1279,14 @@ a.cd-id { color: var(--cd-link); }
           g.ts ? h('time', { datetime: str(g.ts), title: fmtDateTime(g.ts) }, fmtTime(g.ts)) : null),
         arr(g.reasons).length ? h('ul', { class: 'cd-reasons' }, arr(g.reasons).map(function (r) { return h('li', null, str(r)); })) : null);
     });
+    var hi = taskHitl(D, s, t).filter(function (x) { return x.kind === 'review'; })[0];
+    var escNote = 'Let through after the maximum number of gate blocks; ' + (!hi ? 'it is in the review queue.'
+      : hi.open ? 'it waits for your decision below.' : 'decided: ' + (hi.decision || '—') + (hi.by ? ' (by ' + hi.by + ')' : '') + '.');
     agents.forEach(function (a) {   // escalations live on the agent's gate result
-      if (a.gate && a.gate.result === 'escalated') rows.push(h('li', rowAttrs('tgates', 'open', norm([agentLabel(a.id, D.byId), 'escalated', gateText(a.gate)])),
-        h('div', { class: 'cd-gate-head' }, chip('open'), h('strong', null, gateText(a.gate)), h('span', { class: 'cd-id' }, agentLabel(a.id, D.byId))),
-        h('span', { class: 'cd-note' }, 'Let through after the maximum number of gate blocks; it is in the review queue.')));
+      var est = hi && !hi.open ? 'decided' : 'open';
+      if (a.gate && a.gate.result === 'escalated') rows.push(h('li', rowAttrs('tgates', est, norm([agentLabel(a.id, D.byId), 'escalated', gateText(a.gate)])),
+        h('div', { class: 'cd-gate-head' }, chip(est), h('strong', null, gateText(a.gate)), h('span', { class: 'cd-id' }, agentLabel(a.id, D.byId))),
+        h('span', { class: 'cd-note' }, escNote)));
     });
     return section('gates', 'Gate events', null,
       rows.length ? listWrap(h('ul', { class: 'cd-gates' }, rows)) : h('p', { class: 'cd-empty' }, 'No gate blocks for this task.'));
@@ -1200,7 +1333,7 @@ a.cd-id { color: var(--cd-link); }
     if (r.view === 'session') {
       return {
         title: sessTitle(s), sub: sSub, crumbs: [ov, { text: 'Session ' + sh }], placeholder: 'Search this session…',
-        secs: [secSessionInfo(s), secSessionTasks(D, s)].concat(otherSecs(D, s))
+        secs: [secSessionInfo(D, s), secSessionTasks(D, s)].concat(otherSecs(D, s))
       };
     }
     if (r.view === 'other') {
@@ -1222,7 +1355,8 @@ a.cd-id { color: var(--cd-link); }
         section('claims', 'Claims', filterBar('tclaims', arr(t.claims).map(function (c) { return c.state; }), 'claims'),
           arr(t.claims).length ? listWrap(h('ul', { class: 'cd-findings' }, claimRows(D, arr(t.claims), 'tclaims', false)))
             : h('p', { class: 'cd-empty' }, 'No claims reported yet.')),
-        secTaskGates(D, t, agents),
+        secTaskGates(D, s, t, agents),
+        secTaskHitl(D, s, t),
         secTimeline(D, t.log, { id: 'log', title: 'Log', sec: 'tlog:' + sh + ':' + t.key, by: 'agent', empty: 'No events for this task yet.' }),
         secTaskFiles(D, t, agents)
       ]
@@ -1308,7 +1442,7 @@ a.cd-id { color: var(--cd-link); }
           h('a', navLink(hrefSession(sh), here && r.view === 'session', { class: 'cd-sess-link' }),
             h('span', { class: 'cd-sess-time' }, sessWhen(s)),
             h('span', { class: 'cd-sess-title' }, sessTitle(s)),
-            h('span', { class: 'cd-sess-counts' }, sessCounts(s)))),
+            h('span', { class: 'cd-sess-counts' }, sessCounts(s, D)))),
         h('ul', { class: 'cd-nav-tasks', id: 'cd-nt-' + sh, hidden: !exp }, tasks.length ? tasks : h('li', { class: 'cd-empty cd-small' }, 'No tasks.')));
     }));
     body.appendChild(ul);
@@ -1453,6 +1587,10 @@ a.cd-id { color: var(--cd-link); }
 
   function tick() {
     if (S && S.updated) $('cd-updated').textContent = 'Updated ' + fmtDateTime(S.updated) + ' · ' + fmtAgo(S.updated);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cd-ago]'), function (el) {
+      var v = fmtAgo(el.getAttribute('data-cd-ago'));
+      if (el.textContent !== v) el.textContent = v;
+    });
     if (!liveMode()) return;
     var dt = (Date.now() - ui.renderedAt) / 1000;
     Array.prototype.forEach.call(document.querySelectorAll('[data-cd-tick]'), function (el) {
@@ -1533,10 +1671,15 @@ a.cd-id { color: var(--cd-link); }
     if (seg) showPhase(null);
   });
 
+  var copyMsg = h('span', { class: 'cd-vh', role: 'status', 'aria-live': 'polite' });
+  document.body.appendChild(copyMsg);
   function copyText(text, btn) {
     var ok = function () {
+      if (!btn.hasAttribute('data-cd-label')) btn.setAttribute('data-cd-label', btn.textContent);
       btn.textContent = 'Copied ✓';
-      setTimeout(function () { btn.textContent = 'Copy reply'; }, 1500);
+      copyMsg.textContent = 'Copied to clipboard';
+      clearTimeout(btn._cdT);
+      btn._cdT = setTimeout(function () { btn.textContent = btn.getAttribute('data-cd-label') || 'Copy'; copyMsg.textContent = ''; }, 1500);
     };
     var fallback = function () {
       var ta = document.createElement('textarea');

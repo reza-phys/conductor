@@ -128,7 +128,15 @@ Either way, a worker may finish only if all of these hold:
 
 An auditor may finish only if it gave a verdict for every claim in its own review (a re-audit may cover only the claims that changed), and, if it marked anything verified, the log shows it actually read, ran or fetched something.
 
-When a check fails, the agent gets the exact reason and fixes it. If an agent's stop is never recorded but its parent already has the result, the agent is closed as unverified rather than left running. After `gate.max_blocks` (3) failed attempts the agent is let through, but marked `unverified`, and a review item is opened for the human. A `blocked` report with a `needs:` question becomes an open decision for the human. Reports with status `blocked` or `failed` need no review.
+When a check fails, the agent gets the exact reason and fixes it. If an agent's stop is never recorded but its parent already has the result, the agent is closed as unverified rather than left running. After `gate.max_blocks` (3) failed attempts the agent is let through, but marked `unverified`, and a review item is opened for the human. A `blocked` report with a `needs:` question becomes an open item for the human. Reports with status `blocked` or `failed` need no review.
+
+Two kinds of block are told apart. A **transient** block (a sub-agent still running, or an auditor of this task still running, so verdicts are on their way) is a wait, not a defect: it does not count toward `max_blocks` (it has its own, larger `gate.max_transient_blocks`). When a parent resumes a stopped agent with `SendMessage`, the agent's budget starts again, and if it had escalated, the reasons are put in front of the parent's message so the agent can fix them.
+
+**Escalation can be superseded.** Claim, task and review-item state is a pure function of the log, recomputed on every render. Each claim's wording is fingerprinted (`text_sha`, the hash of its normalised text). A claim's state is the latest verdict, from an agent other than the worker, on its *current* wording. If every final claim of an escalated task is verified that way, by the worker's auditor or by a later re-audit from any dispatcher, the task shows `done`, resolved by re-audit. A human can also accept it (`review_resolved`). The same independent verdict on the exact wording also satisfies the evidence check, since the auditor has already checked the source.
+
+A re-audit envelope may name the task as `for="T2"`, `for="P1/T2"` or `for="T2" plan="P1"`. The key resolves to the exact key first, then the plan-qualified key, then a unique suffix match. If the id exists in several plans, the review is refused. `conductor reaudit T2` prints the envelope with the task's final claims verbatim.
+
+Evidence references are parsed leniently: trailing notes such as `— verified` or `(ok)` are dropped, and `path:12-20` or `path:3,9` are split into path and lines. Observations follow honest shell workflows: URLs passed to `curl` or `wget` count as fetched, and the destinations of `cp`, `mv`, `tar -C`, `unzip -d`, `git clone` and redirects count as written. A small shell tokenizer (`shell.py`) handles this. It respects quotes and heredocs, and tracks `cd` within a command. The orchestrator's Bash write guard uses the same tokenizer, and only covers the project root outside `.conductor/`.
 
 ## Human in the loop
 
@@ -139,6 +147,14 @@ When a check fails, the agent gets the exact reason and fixes it. If an agent's 
   - scope changes or budget overruns;
   - acting on conflicting results;
   - accepting anything escalated as unverified.
+
+Every item that needs the human has one shape (schema in [status-schema.md](status-schema.md)): an id (`R-<task>` for an escalated review, `N-<agent>` for a `needs:` question, `H<n>` for an `AskUserQuestion`), a one-line title, a short problem with the latest audit tally, two or three options with consequences and a suggested one, and the raw gate reasons under *Details*. Each option carries a copyable line:
+
+```
+[Conductor HITL R-P1/T2] Problem: … Decision: Accept T2 as done. Note: …
+```
+
+A `UserPromptSubmit` hook recognises a pasted line and records a `hitl_decision`. It then tells the orchestrator what to do next: accept is recorded at once (`review_resolved`); re-audit comes with the ready-made envelope; redo means a new worker. `conductor decide <id> <option>` does the same from a terminal. A decided item leaves the open queue and shows under *Decisions* with a one-line record. It reopens only if something newer contradicts it, such as a fresh escalation of the same task or a requested re-audit that does not verify every claim.
 
 ## Plans
 

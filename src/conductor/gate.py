@@ -5,11 +5,12 @@ Each returns a list of human-readable problems; an empty list means "pass".
 """
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any
 
 from conductor import protocol
-from conductor.tree import Tree, task_key
+from conductor.tree import Tree, task_key, text_sha
 
 CHECKABLE = ("file", "cmd", "url", "mcp", "claim", "hitl")
 
@@ -23,10 +24,18 @@ def _norm_path(p: str) -> str:
     return p[2:] if p.startswith("./") else p
 
 
-def _norm_text(s: str) -> str:
-    """Claim wording, ignoring whitespace, markdown emphasis/backticks and a trailing full stop."""
-    s = re.sub(r"[`*_]", "", s or "")
-    return re.sub(r"\s+", " ", s).strip().rstrip(".").strip().lower()
+def _independently_verified(tree: Tree, agent_id: str, claim: dict) -> bool:
+    """An auditor other than this agent verified this exact wording: anti-fabrication is then already covered."""
+    a = tree.agents.get(agent_id, {})
+    led = tree.ledger.get(a.get("task") or "", {})
+    sha = text_sha(claim.get("text"))
+    return any(v["verdict"] == "verified" and v.get("text_sha") == sha and v.get("by") != agent_id
+               for v in (led.get("verdicts") or {}).get(claim["id"], []))
+
+
+def _nearest(ref: str, candidates) -> str | None:
+    hit = difflib.get_close_matches(ref, [c for c in candidates if c], n=1, cutoff=0.6)
+    return hit[0] if hit else None
 
 
 def _match_file(ref: str, files) -> bool:
@@ -77,7 +86,9 @@ def check_evidence(tree: Tree, agent_id: str, claims: list[dict]) -> list[str]:
     for c in claims:
         checkable = [e for e in c["evidence"] if e["kind"] in CHECKABLE]
         if not checkable:
-            problems.append(f"{c['id']} has no checkable evidence (use file:, cmd:, url:, claim: or hitl:).")
+            problems.append(f"{c['id']} has no checkable evidence (use file:, cmd:, url:, mcp:, claim: or hitl:).")
+            continue
+        if _independently_verified(tree, agent_id, c):
             continue
         for e in checkable:
             if e["kind"] == "claim" and e["ref"].startswith("review:"):
@@ -89,7 +100,11 @@ def check_evidence(tree: Tree, agent_id: str, claims: list[dict]) -> list[str]:
                 else:
                     what = {"file": "never read or wrote", "cmd": "never ran", "url": "never fetched",
                             "mcp": "never called"}[e["kind"]]
-                    problems.append(f"{c['id']} cites {e['kind']}:{e['ref']} but you {what} it.")
+                    pool = {"file": seen["files"] | seen.get("files_ref", set()), "url": seen["urls"],
+                            "cmd": seen["cmds"], "mcp": seen.get("mcp", [])}[e["kind"]]
+                    near = _nearest(e["ref"], pool)
+                    hint = f" (did you mean {e['kind']}:{near}, which you did?)" if near else ""
+                    problems.append(f"{c['id']} cites {e['kind']}:{e['ref']} but you {what} it{hint}.")
     return problems
 
 
@@ -98,15 +113,13 @@ def claim_states(tree: Tree, task: str, worker: str, claims: list[dict]) -> tupl
     led = tree.ledger.get(task, {"submitted": {}, "verdicts": {}})
     states, problems = {}, []
     for c in claims:
-        sub = led["submitted"].get(c["id"])
-        vs = [v for v in led["verdicts"].get(c["id"], []) if v.get("by") and v["by"] != worker]
-        if not sub or not vs:
+        sha = text_sha(c["text"])
+        indep = [v for v in led["verdicts"].get(c["id"], []) if v.get("by") and v["by"] != worker]
+        vs = [v for v in indep if v.get("text_sha") == sha]  # verdicts on this exact wording
+        if not vs:
             states[c["id"]] = "unreviewed"
-            problems.append(f"{c['id']} has not been reviewed by an auditor.")
-            continue
-        if _norm_text(sub.get("text", "")) != _norm_text(c["text"]):
-            states[c["id"]] = "unreviewed"
-            problems.append(f"{c['id']} changed after its review; send the new wording to an auditor.")
+            problems.append(f"{c['id']} changed after its review; send the new wording to an auditor." if indep
+                            else f"{c['id']} has not been reviewed by an auditor.")
             continue
         v = vs[-1]
         states[c["id"]] = v["verdict"]

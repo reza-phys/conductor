@@ -437,6 +437,175 @@ class HookHarness(unittest.TestCase):
         self.assertNotIn("secret plan", blob)
         self.assertNotIn("private instructions", blob)
 
+    # --- issues #3 and #4 ------------------------------------------------------------------------------------------
+    def _escalate_t2(self):
+        """P1/T2: worker reports a verified-looking claim the gate cannot accept, until it escalates."""
+        self.set_gate(max_blocks=1)
+        self.dispatch("tu1", '<conductor-task id="T2" plan="P1@v1">\ncriteria: c\n</conductor-task>\n')
+        self.hook("SubagentStart", "W1", "conductor:worker")
+        self.hook("PostToolUse", "W1", "conductor:worker", tool_name="Read",
+                  tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        rep = ('<conductor-report task="T2" status="done">\nclaims:\n- C1: x is 1 | evidence: file:src/app.py:1 — verified\n'
+               '- C2: app.py has one line | evidence: file:src/app.py\n</conductor-report>')
+        self.assertEqual(self.stop("W1", "conductor:worker", rep)["decision"], "block")
+        self.assertIsNone(self.stop("W1", "conductor:worker", rep))  # budget spent -> escalated
+        return rep
+
+    def test_escalation_is_superseded_by_a_later_audit_from_the_orchestrator(self):
+        self._escalate_t2()
+        st = self.status()
+        self.assertEqual(st["summary"]["open_human"], 1)
+        item = st["review_queue"][0]
+        self.assertEqual(item["id"], "R-P1/T2")
+        self.assertLessEqual(len(item["title"]), 90)
+        self.assertIn("Latest audit:", item["problem"])
+        self.assertEqual(item["suggested"], "reaudit")  # claims not yet reviewed
+        self.assertEqual(len(item["options"]), 3)
+        self.assertTrue(item["options"][0]["paste"].startswith("[Conductor HITL R-P1/T2] Problem: "))
+        # the orchestrator (main, no plan of its own) re-audits with the bare id: it must land on P1/T2
+        env = ('<conductor-review for="T2">\nclaims:\n- C1: x is 1 | evidence: file:src/app.py:1\n'
+               '- C2: app.py has one line | evidence: file:src/app.py\n</conductor-review>')
+        self.dispatch("tuA", env, stype="conductor:auditor")
+        self.hook("SubagentStart", "AU", "conductor:auditor")
+        self.hook("PostToolUse", "AU", "conductor:auditor", tool_name="Read", tool_input={"file_path": str(self.root / "src/app.py")}, tool_response={})
+        self.assertIsNone(self.stop("AU", "conductor:auditor", '<conductor-report task="review:T2" status="done">\nverdicts:\n'
+                                    '- C1: verified | line 1\n- C2: verified | wc -l\n</conductor-report>'))
+        st = self.status()
+        self.assertEqual(st["review_queue"], [])
+        self.assertEqual(st["summary"]["open_human"], 0)
+        self.assertEqual(st["summary"]["unverified"], 0)
+        self.assertEqual(sorted(f["state"] for f in st["findings"]), ["verified", "verified"])
+        self.assertEqual({t["key"]: t["state"] for t in st["sessions"][0]["tasks"]}["P1/T2"], "done")
+        rec = next(d for d in st["decisions"] if d["id"] == "R-P1/T2")
+        self.assertEqual((rec["state"], rec["decided_by"], rec["decision"]), ("decided", "re-audit", "Verified by re-audit"))
+        prov = subprocess.run([sys.executable, str(CLI), "provenance", "P1/T2"], cwd=self.root, capture_output=True, text=True,
+                              env={**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)}).stdout
+        self.assertIn("claim P1/T2/C1 [verified]", prov)
+        self.assertIn("resolved: verified by re-audit", prov)
+        stat = subprocess.run([sys.executable, str(CLI), "status"], cwd=self.root, capture_output=True, text=True,
+                              env={**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)}).stdout
+        self.assertNotIn("Needs you", stat)
+        w = next(a for a in st["agents"] if a["id"] == "W1")
+        self.assertEqual(w["state"], "done")
+        self.assertIn("resolved", w["gate"]["result"])
+
+    def test_human_decision_by_paste_moves_the_item_to_decisions(self):
+        self._escalate_t2()
+        item = self.status()["review_queue"][0]
+        accept = next(o for o in item["options"] if o["id"] == "accept")
+        out = self.hook("UserPromptSubmit", prompt="ok " + accept["paste"])
+        self.assertIn("accepted P1/T2 as done", out["hookSpecificOutput"]["additionalContext"])
+        st = self.status()
+        self.assertEqual(st["review_queue"], [])
+        rec = next(d for d in st["decisions"] if d["id"] == "R-P1/T2")
+        self.assertEqual(rec["decision"], "Accept T2 as done")
+        self.assertIn("Decided: Accept T2 as done", rec["record"])
+        self.assertEqual({t["key"]: t["state"] for t in st["sessions"][0]["tasks"]}["P1/T2"], "done")
+
+    def test_reaudit_paste_returns_the_exact_envelope_and_cli_decide_works(self):
+        self._escalate_t2()
+        item = self.status()["review_queue"][0]
+        out = self.hook("UserPromptSubmit", prompt=next(o for o in item["options"] if o["id"] == "reaudit")["paste"])
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('<conductor-review for="P1/T2">', ctx)
+        self.assertIn("- C1: x is 1 | evidence: file:src/app.py:1", ctx)
+        r = subprocess.run([sys.executable, str(CLI), "decide", "R-P1/T2", "accept", "--note", "fine"], cwd=self.root,
+                           capture_output=True, text=True, env={**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.status()["review_queue"], [])
+
+    def test_a_new_escalation_after_a_decision_reopens_the_item(self):
+        rep = self._escalate_t2()
+        item = self.status()["review_queue"][0]
+        self.hook("UserPromptSubmit", prompt=next(o for o in item["options"] if o["id"] == "redo")["paste"])
+        self.assertEqual(self.status()["review_queue"], [])
+        self.dispatch("tu9", '<conductor-task id="T2" plan="P1@v1">\ncriteria: c\n</conductor-task>\n')
+        self.hook("SubagentStart", "W2", "conductor:worker")
+        self.stop("W2", "conductor:worker", rep)
+        self.stop("W2", "conductor:worker", rep)  # escalates again
+        self.assertEqual([i["id"] for i in self.status()["review_queue"]], ["R-P1/T2"])
+
+    def test_ambiguous_review_key_is_refused(self):
+        for tu, plan in (("t1", "P1@v1"), ("t2", "P2@v1")):
+            self.dispatch(tu, f'<conductor-task id="T2" plan="{plan}">\ncriteria: c\n</conductor-task>\n')
+        out = self.hook("PreToolUse", tool_name="Agent", tool_input={
+            "subagent_type": "conductor:auditor", "description": "r",
+            "prompt": '<conductor-review for="T2">\nclaims:\n- C1: x | evidence: file:a\n</conductor-review>'})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("P1/T2", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_evidence_annotations_are_stripped(self):
+        from conductor import protocol
+        refs = lambda s: [(e["kind"], e["ref"], e.get("lines")) for e in protocol.parse_evidence(s)]  # noqa: E731
+        self.assertEqual(refs("file:src/main.tex:118-121 — verified"), [("file", "src/main.tex", "118-121")])
+        self.assertEqual(refs("file:src/a.py (verified)"), [("file", "src/a.py", None)])
+        self.assertEqual(refs("url:https://x.org/a — ok"), [("url", "https://x.org/a", None)])
+        self.assertEqual(refs("cmd:cd a; make (ok); file:b.py:3,9"),
+                         [("cmd", "cd a; make (ok)", None), ("file", "b.py", "3,9")])
+
+    def test_ask_user_question_decisions_are_readable(self):
+        qs = [{"question": "Which name?", "header": "Repo", "options": [{"label": "my-repo, private"}, {"label": "other"}]},
+              {"question": "Which parts?", "header": "Scope", "multiSelect": True, "options": [{"label": "A"}, {"label": "B"}]}]
+        self.hook("PostToolUse", tool_name="AskUserQuestion", tool_input={"questions": qs},
+                  tool_response={"questions": qs, "answers": {"Which name?": "my-repo, private", "Which parts?": ["A", "B"]}})
+        d = self.status()["decisions"][0]
+        self.assertEqual(d["decision"], "my-repo, private; A, B")
+        self.assertEqual(d["title"], "Repo: Which name? · Scope: Which parts?")
+
+    def test_transient_waits_do_not_use_the_budget_and_resume_resets_it(self):
+        self.set_gate(max_blocks=1)
+        w = "conductor:worker"
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", w)
+        self.dispatch("tu2", ENV.format(id="T1.1", c="c"), agent="A1", agent_type=w)
+        self.hook("SubagentStart", "A2", w)  # still running
+        rep = REPORT.format(t="T1", s="blocked", n="none")  # a valid report; only the running child blocks it
+        for _ in range(3):  # three waits, none counted
+            out = self.stop("A1", w, rep, bg=[{"id": "A2", "status": "running"}])
+            self.assertIn("does not use up an attempt", out["reason"])
+        self.assertEqual(self.status()["agents"][0]["state"], "running")
+        self.stop("A2", w, REPORT.format(t="T1.1", s="blocked", n="none"))
+        # a real defect now: one block (budget 1), then escalation
+        self.assertIn("attempt 1/1", self.stop("A1", w, "no report")["reason"])
+        self.assertIsNone(self.stop("A1", w, "no report"))
+        # the parent resumes A1: fresh budget, and the reasons are prepended to its message
+        out = self.hook("PreToolUse", tool_name="SendMessage", tool_input={"to": "A1", "message": "please fix"})
+        msg = out["hookSpecificOutput"]["updatedInput"]["message"]
+        self.assertIn("recorded as unverified because", msg)
+        self.assertTrue(msg.endswith("please fix"))
+        self.assertEqual(self.stop("A1", w, "still no report")["decision"], "block")  # budget was reset
+
+    def test_curl_and_cp_count_as_observations(self):
+        self.set_gate(require_verdicts=False)
+        w = "conductor:worker"
+        self.dispatch("tu1", ENV.format(id="T1", c="c"))
+        self.hook("SubagentStart", "A1", w)
+        (self.root / "scratch").mkdir()
+        (self.root / "scratch/n.txt").write_text("x")
+        (self.root / "docs").mkdir()
+        (self.root / "docs/n.txt").write_text("x")  # as if cp had run
+        self.hook("PostToolUse", "A1", w, tool_name="Bash",
+                  tool_input={"command": "curl -sL https://arxiv.org/abs/1234.5678 -o scratch/p.html && cp scratch/n.txt docs/n.txt"},
+                  tool_response={})
+        rep = ('<conductor-report task="T1" status="done">\nclaims:\n- C1: fetched | evidence: url:https://arxiv.org/abs/1234.5678 — ok\n'
+               '- C2: notes copied | evidence: file:docs/n.txt (verified)\n</conductor-report>')
+        self.assertIsNone(self.stop("A1", w, rep))
+
+    def test_bash_guard_has_no_false_positives(self):
+        deny = lambda cmd: (self.hook("PreToolUse", tool_name="Bash", tool_input={"command": cmd}) or {}) \
+            .get("hookSpecificOutput", {}).get("permissionDecision")  # noqa: E731
+        ok = ['grep -n "blocks >= " src/app.py',
+              "sed -n '447p' src/app.py | head > /private/tmp/agent-1/-Users-x-Library-y/scratchpad/x",
+              "python3 - <<'PY'\nimport re\nprint(re.search(r'a></script>', s, re.S))\nPY",
+              "cd .conductor && echo x > status-data.txt",
+              "echo note >> ~/.claude/projects/p/memory/n.md"]
+        for cmd in ok:
+            self.assertIsNone(deny(cmd), cmd)
+        for cmd in ["cd src && echo x > app.py", "sed -i.bak 's/1/2/' src/app.py", "tar -xzf a.tgz -C src"]:
+            self.assertEqual(deny(cmd), "deny", cmd)
+        mem = Path(tempfile.gettempdir()) / "conductor-memory-test.md"
+        self.assertIsNone(self.hook("PreToolUse", tool_name="Write", tool_input={"file_path": str(mem)}))
+
     def test_gate_escalates_after_max_blocks(self):
         self.dispatch("tu1", ENV.format(id="T1", c="c"))
         self.hook("SubagentStart", "A1", "conductor:worker")
@@ -448,13 +617,16 @@ class HookHarness(unittest.TestCase):
         self.assertEqual(len(st["review_queue"]), 1)
         self.assertEqual(st["summary"]["unverified"], 1)
 
-    def test_blocked_report_opens_decision(self):
+    def test_blocked_report_opens_a_needs_item(self):
         self.dispatch("tu1", ENV.format(id="T1", c="c"))
         self.hook("SubagentStart", "A1", "conductor:worker")
         self.stop("A1", "conductor:worker", REPORT.format(t="T1", s="blocked", n="Which DB should I use?"))
         st = self.status()
-        self.assertEqual(st["decisions"][0]["state"], "open")
-        self.assertIn("Which DB", st["decisions"][0]["q"])
+        item = st["review_queue"][0]
+        self.assertEqual((item["kind"], item["state"], item["id"]), ("needs", "open", "N-A1"))
+        self.assertIn("Which DB", item["title"])
+        self.assertEqual([o["id"] for o in item["options"]], ["answer", "stop"])
+        self.assertEqual(st["summary"]["open_human"], 1)
 
     def test_uninitialised_project_is_silent(self):
         with tempfile.TemporaryDirectory() as d:

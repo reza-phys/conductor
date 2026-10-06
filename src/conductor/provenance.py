@@ -63,6 +63,13 @@ def _task_keys(tree: Tree, ref: str) -> list[str]:
     return sorted(k for k in keys if k == ref or k.endswith("/" + ref))
 
 
+def _state(tree: Tree, task: str, cid: str) -> str:
+    """Current state of a final claim: the latest independent verdict on its exact wording (same as the dashboard)."""
+    if cid not in ((tree.ledger.get(task) or {}).get("final") or {}):
+        return "submitted"
+    return tree.claim_state(task, cid)[0]
+
+
 def claim(tree: Tree, ref: str) -> list[str]:
     hit = gate.resolve_claim(tree, ref)
     if not hit:
@@ -75,7 +82,7 @@ def claim(tree: Tree, ref: str) -> list[str]:
     by = led.get("final_by") or c.get("by")
     a = tree.agents.get(by or "", {})
     disp = _dispatch_of(tree, by) if by else {}
-    out = [f'Claim {ref}: "{c["text"]}"  [{c.get("state") or "submitted"}]',
+    out = [f'Claim {ref}: "{c["text"]}"  [{_state(tree, task, cid)}]',
            f"  asserted by: {_label(tree, by)} · task {task} · plan {a.get('plan') or '-'} · finished {a.get('ended') or '-'}",
            f"  chain:       {_chain(tree, by) if by else '-'}"]
     if disp.get("criteria"):
@@ -88,7 +95,8 @@ def claim(tree: Tree, ref: str) -> list[str]:
     vs = led.get("verdicts", {}).get(cid, [])
     out.append("  verdicts:" if vs else "  verdicts:    none")
     for v in vs:
-        out.append(f"    {v['verdict']} by {_label(tree, v.get('by'))} at {v['ts']}: {v.get('evidence') or ''}")
+        stale = "" if v.get("text_sha") in (None, c.get("text_sha")) else " (earlier wording)"
+        out.append(f"    {v['verdict']} by {_label(tree, v.get('by'))} at {v['ts']}{stale}: {v.get('evidence') or ''}")
     if a.get("output_path"):
         out.append(f"  report:      {a['output_path']}")
     return out
@@ -108,11 +116,15 @@ def task(tree: Tree, ref: str) -> list[str]:
         role = "review" if a.get("review_for") else "work"
         out.append(f"  {role}: {_label(tree, a['id'])} [{a['state']}] dispatched by {_label(tree, a.get('parent'))} "
                    f"at {d.get('ts', '-')} · gate {a.get('gate_result') or '-'}")
+    res = tree.task_resolution(tid)
+    if res:
+        out.append(f"  resolved: {res.get('decision')} by {res.get('by')} at {res.get('ts') or '-'}"
+                   + (f" ({res['note']})" if res.get("note") else ""))
         if d.get("criteria") and role == "work":
             out.append(f"    criteria: {core.clip(d['criteria'], 200)}")
     for cid in sorted((tree.ledger.get(tid) or {}).get("final", {})):
         c = tree.ledger[tid]["final"][cid]
-        out.append(f"  claim {tid}/{cid} [{c.get('state')}]: {core.clip(c['text'], 100)}")
+        out.append(f"  claim {tid}/{cid} [{_state(tree, tid, cid)}]: {core.clip(c['text'], 100)}")
     return out
 
 
@@ -147,7 +159,7 @@ def file(tree: Tree, path: str) -> list[str]:
     for t, led in tree.ledger.items():
         for cid, c in (led.get("final") or {}).items():
             if any(ev["kind"] == "file" and ev["ref"].lstrip("./") == path for ev in c.get("evidence", [])):
-                out.append(f"  cited by claim {t}/{cid} [{c.get('state')}]: {core.clip(c['text'], 80)}")
+                out.append(f"  cited by claim {t}/{cid} [{_state(tree, t, cid)}]: {core.clip(c['text'], 80)}")
     return out if len(out) > 1 else [f"No recorded activity for {path}."]
 
 

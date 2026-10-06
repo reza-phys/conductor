@@ -40,7 +40,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_claims": True,  # a "done" report must assert at least one claim
         "check_evidence": True,  # cited files/commands/urls must appear in the agent's own observations
         "require_verdicts": True,  # every final claim needs an independent auditor verdict
-        "max_blocks": 3,  # then allow, mark task `unverified`, open a review item
+        "max_blocks": 3,  # defect blocks; then allow, mark task `unverified`, open a review item
+        "max_transient_blocks": 10,  # waits for running sub-agents / pending verdicts, not counted in max_blocks
         "allow_review_skip": True,  # honour review="skip" on a task envelope (claims and evidence are still checked)
     },
     "render": {"enabled": True, "log_limit": 300, "log_visible": 8, "max_sessions": 30, "task_log_limit": 300},

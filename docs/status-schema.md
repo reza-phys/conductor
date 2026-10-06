@@ -117,3 +117,34 @@
 `agents[]` entries gain `"session": "<session id>"` and `"task_key": "P2/T3"` (`task` keeps the short id for display). `findings[]` entries gain `"key"` (`P2/T3/C1`) and `"session"`.
 
 **Task keys.** Tasks are keyed by plan and id (`P2/T3`) so that `T3` of plan P1 and `T3` of plan P2 never merge. The short id (`T3`, `T3/C1`) is shown wherever it is unambiguous.
+
+## Human-in-the-loop items (schema 2, from v0.3.0)
+
+`review_queue[]` and `decisions[]` hold items of one shape. `review_queue` contains only **open** items: escalated tasks and worker `needs:` questions. `decisions` is the full history: `AskUserQuestion` answers and every decided review or needs item, newest first. `summary.open_human` counts open items only.
+
+```jsonc
+{
+  "id": "R-P1/T2",                     // R-<task key> (review) · N-<agent short> (needs) · H<n> (AskUserQuestion)
+  "kind": "review",                    // review | needs | decision
+  "state": "open",                     // open | decided
+  "title": "T2 escalated after 3 gate blocks — accept or re-audit?",   // ≤ 90 chars, phrased as a question
+  "problem": "The gate stopped retrying T2. Reasons: evidence not observed (5 claims); claims reworded after review (6). Latest audit: 7/7 claims verified.",
+  "context": {"task": "P1/T2", "agent": "af7702…", "claims": "7/7 verified", "since": "2026-10-06T16:35:25Z", "session": "<id>"},
+  "categories": [{"label": "evidence not observed", "count": 5}, {"label": "claims reworded after review", "count": 6}],
+  "options": [
+    {"id": "accept", "label": "Accept T2 as done", "consequence": "Marks T2 done; claims keep their audit state.",
+     "recommended": true,
+     "paste": "[Conductor HITL R-P1/T2] Problem: T2 escalated after 3 gate blocks (latest audit 7/7 verified). Decision: Accept T2 as done."}
+  ],
+  "suggested": "accept",
+  "why_suggested": "Every final claim has a matching 'verified' verdict from an independent auditor.",
+  "details": "raw gate reasons / full question and answer, for a collapsed Details block",
+  "decision": null,                    // decided items: the chosen option label, or the human's free text
+  "note": null,
+  "decided_by": null,                  // human | orchestrator | re-audit
+  "decided_ts": null,
+  "record": null                       // decided items: one line, e.g. "R-P1/T2 · Problem: … · Decided: Accept T2 as done · by human 16:58"
+}
+```
+
+A human decides an item by pasting an option's `paste` line into the session (a hook records it as a `hitl_decision` event) or by running `conductor decide <id> <option-id> [--note …]`. A review item is also closed automatically, with `decided_by: "re-audit"`, when a later independent audit verifies every final claim of its task.

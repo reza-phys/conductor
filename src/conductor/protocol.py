@@ -106,6 +106,22 @@ def _items(block: str | None) -> list[tuple[str, str]]:
     return [(m.group(1), m.group(2).strip()) for m in map(_ITEM.match, (block or "").splitlines()) if m]
 
 
+_ANNOT_DASH = re.compile(r"\s+(?:—|–|--)\s+.*$")                       # "… — verified", "… -- see notes"
+_ANNOT_PAREN = re.compile(r"\s+\((?:[^()]*)\)\s*$")                       # "… (verified)" at the very end
+_ANNOT_WORD = re.compile(r"[\s,;:|-]+(?:verified|refuted|unverified|ok|checked|confirmed)[.!]?\s*$", re.I)
+_FILE_REF = re.compile(r"^(?P<path>`[^`]+`|\S+?)(?::(?P<lines>\d+(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)*))?(?=\s|$)")
+
+
+def _strip_annotation(ref: str, kind: str) -> str:
+    """Drop harmless notes agents append to a reference ("— verified", "(ok)"). Commands keep their own
+    parentheses; for them only a spaced dash or a bare trailing verdict word is cut."""
+    ref = _ANNOT_DASH.sub("", ref.strip())
+    if kind != "cmd":
+        ref = _ANNOT_PAREN.sub("", ref)
+    ref = _ANNOT_WORD.sub("", ref).strip()
+    return ref
+
+
 def parse_evidence(s: str) -> list[dict]:
     out = []
     # Split on ";" only where the next item starts with an evidence kind: commands may contain ";" themselves.
@@ -116,12 +132,19 @@ def parse_evidence(s: str) -> list[dict]:
         kind, sep, ref = part.partition(":")
         kind = kind.strip().lower()
         if sep and kind in EVIDENCE_KINDS:
-            ref = ref.strip().strip("`")
-            ev = {"kind": kind, "ref": ref}
+            raw = ref.strip()
+            ref = _strip_annotation(raw, kind)
             if kind == "file":
-                m = re.match(r"^(.*?):(\d+(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)*)$", ref)  # path:12, path:3-9, path:303,350
-                if m:
-                    ev.update(ref=m.group(1), lines=m.group(2))
+                m = _FILE_REF.match(ref)  # path, path:12, path:3-9, path:303,350 — anything after whitespace is a note
+                ev = {"kind": kind, "ref": m.group("path").strip("`") if m else ref.strip("`")}
+                if m and m.group("lines"):
+                    ev["lines"] = re.sub(r"\s+", "", m.group("lines"))
+            elif kind in ("url", "mcp", "claim", "hitl"):
+                ev = {"kind": kind, "ref": (ref.strip("`").split() or [""])[0].strip("`<>")}
+            else:  # cmd: the whole command, minus wrapping backticks
+                ev = {"kind": kind, "ref": ref.strip("`").strip()}
+            if raw.strip("`") != ev["ref"] and kind != "cmd":
+                ev["raw"] = raw
             out.append(ev)
         else:
             out.append({"kind": "note", "ref": part})
@@ -189,6 +212,7 @@ ORCHESTRATOR_BRIEF = """\
 - Workers can only finish once their claims are verified by an auditor; results arrive with verified claims (ids like T3/C1). Cite those ids when you report to the human, and label anything unverified as such.
 - A worker returning status="blocked" with a `needs:` question → ask the human with AskUserQuestion, log the decision in .conductor/plans/decisions.md, then resume the worker with SendMessage or re-dispatch.
 - Ask the human before: irreversible or outward actions (push, publish, send, delete), scope changes, budget overruns, conflicting results, or anything escalated as unverified.
+- An escalated task can be re-audited (`<conductor-review for="P1/T2">`, final claims verbatim) instead of redone. A pasted "[Conductor HITL <id>] … Decision: …" line is the human's decision; the hook tells you the next step.
 - The human can run /conductor:status anytime; the live dashboard is /conductor:serve. Full playbook: the conductor:orchestrate skill.
 """
 
